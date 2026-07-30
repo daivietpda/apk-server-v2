@@ -1,0 +1,15 @@
+name = "apk-server-v2-telemetry"
+main = "src/worker.js"
+compatibility_date = "2026-07-30"
+workers_dev = false
+
+routes = [
+  { pattern = "apk.daivietpda.com/api/v2/*", zone_name = "daivietpda.com" },
+  { pattern = "apk.daivietpda.com/telemetry*", zone_name = "daivietpda.com" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "apk-server-v2-telemetry"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"

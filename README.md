@@ -25,5 +25,6 @@ Do not commit signing keys, release APKs, local Android caches, or the private V
 ## Documentation
 
 - [Vietnamese operations guide](server/README.vi.md)
+- [V2 telemetry deployment guide](telemetry/README.vi.md)
 - Primary CDN: `https://apk.daivietpda.com/`
 - Direct fallback: `https://daivietpda.github.io/apk-server-v2/`

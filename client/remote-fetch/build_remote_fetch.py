@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SOURCE = ROOT / "RemoteFetchV2.java"
+SOURCES = [ROOT / "RemoteFetchV2.java", ROOT / "TelemetryV2.java"]
 
 
 def main():
@@ -26,8 +26,14 @@ def main():
         classes = temp / "classes"
         dex = temp / "dex"
         classes.mkdir(); dex.mkdir()
-        subprocess.run([args.javac, "-source", "8", "-target", "8", "-d", str(classes), str(SOURCE)], check=True)
-        subprocess.run([args.java, "-cp", str(args.r8_jar), "com.android.tools.r8.D8", "--min-api", str(args.min_api), "--output", str(dex), str(classes / "RemoteFetchV2.class")], check=True)
+        subprocess.run(
+            [args.javac, "-source", "8", "-target", "8", "-d", str(classes), *map(str, SOURCES)],
+            check=True,
+        )
+        class_files = sorted(classes.glob("*.class"))
+        if not class_files:
+            raise SystemExit("javac did not produce class files")
+        subprocess.run([args.java, "-cp", str(args.r8_jar), "com.android.tools.r8.D8", "--min-api", str(args.min_api), "--output", str(dex), *map(str, class_files)], check=True)
         dex_file = dex / "classes.dex"
         if not dex_file.is_file() or dex_file.stat().st_size == 0:
             raise SystemExit("D8 did not produce classes.dex")

@@ -25,3 +25,9 @@ PREINSTALL_FACTORYRESET-V2.md
 # Python bytecode cache
 __pycache__/
 *.py[cod]
+# Telemetry deployment secrets and generated config
+telemetry/wrangler.toml
+telemetry/.dev.vars
+**/telemetry.key
+telemetry/ingest-token.txt
+telemetry/dashboard-token.txt
