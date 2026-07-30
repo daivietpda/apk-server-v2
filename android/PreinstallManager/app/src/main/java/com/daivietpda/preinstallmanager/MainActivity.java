@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.FileObserver;
@@ -35,6 +36,7 @@ public final class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private TextView statusView;
     private TextView logView;
+    private ScrollView logScrollView;
     private Button runButton;
     private File runtimeDirectory;
     private FileObserver observer;
@@ -93,7 +95,10 @@ public final class MainActivity extends Activity {
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         runButton = button(getString(R.string.run_update), v -> triggerUpdate());
         buttons.addView(runButton, buttonParams());
-        Button refresh = button(getString(R.string.refresh_status), v -> refreshStatus());
+        Button refresh = button(getString(R.string.refresh_status), v -> {
+            refreshStatus();
+            scrollLogToBottom();
+        });
         buttons.addView(refresh, buttonParams());
         Button copy = button(getString(R.string.copy_log), v -> copyLog());
         buttons.addView(copy, buttonParams());
@@ -104,13 +109,13 @@ public final class MainActivity extends Activity {
         logTitleParams.setMargins(0, 24, 0, 8);
         root.addView(logTitle, logTitleParams);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
+        logScrollView = new ScrollView(this);
+        logScrollView.setFillViewport(true);
         logView = text("", 13, 0xffd0d0d0);
         logView.setPadding(18, 18, 18, 18);
         logView.setBackgroundColor(0xff182b32);
-        scroll.addView(logView, new ScrollView.LayoutParams(-1, -2));
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        logScrollView.addView(logView, new ScrollView.LayoutParams(-1, -2));
+        root.addView(logScrollView, new LinearLayout.LayoutParams(-1, 0, 1f));
         return root;
     }
 
@@ -126,6 +131,15 @@ public final class MainActivity extends Activity {
         Button view = new Button(this);
         view.setText(label);
         view.setTextSize(13);
+        view.setBackgroundResource(R.drawable.tv_button_background);
+        view.setBackgroundTintList(null);
+        view.setTextColor(new ColorStateList(
+                new int[][] {
+                        new int[] { android.R.attr.state_focused },
+                        new int[] { android.R.attr.state_pressed },
+                        new int[] {}
+                },
+                new int[] { Color.BLACK, Color.BLACK, Color.WHITE }));
         view.setOnClickListener(listener);
         view.setOnFocusChangeListener((focused, hasFocus) -> {
             focused.setScaleX(hasFocus ? 1.05f : 1f);
@@ -226,6 +240,19 @@ public final class MainActivity extends Activity {
         statusView.setText(getString(R.string.status_summary, localizeState(item.state), localizePhase(item.phase),
                 packageLine, releaseLine, localizeMessage(item.message)));
         logView.setText(item.log.isEmpty() ? getString(R.string.no_log) : item.log);
+        scrollLogToBottom();
+    }
+
+    /**
+     * Wait until the updated TextView has been measured, then show its tail.
+     * scrollTo() deliberately preserves DPAD focus on the current action button.
+     */
+    private void scrollLogToBottom() {
+        if (logScrollView == null || logView == null) return;
+        logScrollView.post(() -> {
+            int bottom = Math.max(0, logView.getHeight() - logScrollView.getHeight());
+            logScrollView.scrollTo(0, bottom);
+        });
     }
 
     private String localizeState(String value) {
