@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "file": "AptoideTV-5.0.2.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
+      "file": "cobalt.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
+      "file": "downloader.apk",
+      "packageName": "com.esaba.downloader",
+      "forceInstall": true
+    },
+    {
+      "file": "Launch-On-Boot.v1.4.6.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
+      "file": "smarttube_stable.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
+      "file": "VTVgoTV.zip",
+      "packageName": "vn.vtv.vtvgotv",
+      "forceInstall": true
+    },
+    {
+      "file": "Xplore.apk",
+      "packageName": "",
+      "forceInstall": false
+    }
+  ]
+}

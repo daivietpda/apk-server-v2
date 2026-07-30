@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Preinstall Manager</string>
+    <string name="title">Cập nhật ứng dụng Cài Đặt Sẵn</string>
+    <string name="run_update">Kiểm tra và cập nhật</string>
+    <string name="refresh_status">Làm mới trạng thái</string>
+    <string name="requesting">Đang gửi yêu cầu…</string>
+    <string name="request_sent">Đã gửi yêu cầu. Listener sẽ xử lý trong vài giây.</string>
+    <string name="request_failed">Không thể kích hoạt: %1$s</string>
+    <string name="service_status">Dịch Vụ Cài Đặt Sẵn: %1$s</string>
+    <string name="unknown">không xác định</string>
+    <string name="run_update_desc">Nhấn vào nút \"Kiểm tra và cập nhật\" để bắt đầu quá trình đồng bộ hóa và cập nhật dịch vụ cài đặt ứng dụng.</string>
+    <string name="custom_footer_text">CHÚ Ý . Thao tác này chỉ giống như bạn khởi động lại box,chỉ kiểm tra các phiên bản cập nhật và cài đặt\n\nCác ứng dụng nào mà trong danh sách bắt buộc cài đặt cũng sẽ được cài đặt lại dù trước đó bạn đã gỡ bỏ.</string>
+</resources>

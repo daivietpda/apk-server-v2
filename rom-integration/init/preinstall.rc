@@ -1,0 +1,21 @@
+service preinstall_listener /system/bin/sh /product/preinstall/preinstall-listener.conf
+    class main
+    user shell
+    group shell inet sdcard_rw ext_data_rw
+    disabled
+    oneshot
+    seclabel u:r:shell:s0
+
+service factoryreset /system/bin/sh /product/preinstall/factoryreset.conf
+    class main
+    user shell
+    group shell inet sdcard_rw ext_data_rw
+    disabled
+    oneshot
+    seclabel u:r:shell:s0
+
+on property:sys.boot_completed=1
+    # Enable ZRAM on boot_complete
+    swapon_all /vendor/etc/fstab.amlogic
+    start factoryreset
+    start preinstall_listener

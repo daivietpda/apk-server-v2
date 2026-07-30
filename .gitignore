@@ -1,0 +1,23 @@
+# Local Android/Gradle state
+.gradle/
+**/build/
+.idea/
+.venv/
+local.properties
+
+# Signing material and release output
+signing/
+signing.properties
+release/
+*.jks
+*.keystore
+*.p12
+
+# Generated server output
+server/public/
+server/__pycache__/
+server/scripts/__pycache__/
+
+# Private working reference; never commit
+docs/PREINSTALL_FACTORYRESET-V1-REFERENCE.md
+PREINSTALL_FACTORYRESET-V2.md

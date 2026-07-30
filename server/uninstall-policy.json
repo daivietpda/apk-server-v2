@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "uninstallPackages": [
+    {
+      "packageName": "com.maxrave.simpmusic",
+      "enforce": true,
+      "keepData": false,
+      "userId": 0
+    }
+  ]
+}

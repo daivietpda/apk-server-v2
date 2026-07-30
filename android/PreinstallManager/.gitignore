@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.log
+signing.properties
+signing/*.p12
+signing/*.der
+
+# IntelliJ IDEA
+.idea/

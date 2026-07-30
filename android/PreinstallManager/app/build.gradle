@@ -1,0 +1,27 @@
+plugins { id "com.android.application" }
+def signingFile = rootProject.file("signing.properties")
+def signingProps = new Properties()
+if (signingFile.exists()) signingFile.withInputStream { signingProps.load(it) }
+android {
+    namespace "com.daivietpda.preinstallmanager"
+    compileSdk 35
+    defaultConfig {
+        applicationId "com.daivietpda.preinstallmanager"
+        minSdk 29
+        targetSdk 29
+        versionCode 1
+        versionName "1.0"
+    }
+    signingConfigs {
+        release {
+            if (signingFile.exists()) {
+                storeFile rootProject.file(signingProps["storeFile"])
+                storePassword signingProps["storePassword"]
+                keyAlias signingProps["keyAlias"]
+                keyPassword signingProps["keyPassword"]
+            }
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.release } }
+    lint { checkReleaseBuilds false }
+}

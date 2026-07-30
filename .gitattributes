@@ -1,0 +1,10 @@
+# Keep Android init and shell payloads executable by /system/bin/sh after checkout.
+*.conf text eol=lf
+*.rc text eol=lf
+*.sh text eol=lf
+
+# Keep source/release metadata deterministic across Windows and CI.
+*.java text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
