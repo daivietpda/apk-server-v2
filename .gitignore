@@ -21,3 +21,7 @@ server/scripts/__pycache__/
 # Private working reference; never commit
 docs/PREINSTALL_FACTORYRESET-V1-REFERENCE.md
 PREINSTALL_FACTORYRESET-V2.md
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
