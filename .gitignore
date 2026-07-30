@@ -31,3 +31,4 @@ telemetry/.dev.vars
 **/telemetry.key
 telemetry/ingest-token.txt
 telemetry/dashboard-token.txt
+telemetry/.wrangler/
