@@ -1,0 +1,69 @@
+name: Build and deploy APK Server V2
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'server/**'
+      - 'client/remote-fetch/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: apk-server-v2-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - id: pages
+        uses: actions/configure-pages@v5
+      - name: Install Android build tools
+        run: sdkmanager 'build-tools;35.0.1'
+      - name: Validate and generate manifest schema v3
+        run: |
+          python3 -m py_compile server/scripts/update_manifest.py server/scripts/build_public.py client/remote-fetch/build_remote_fetch.py
+          python3 -m unittest discover -s server/tests -v
+          python3 server/scripts/update_manifest.py --aapt2 "$ANDROID_HOME/build-tools/35.0.1/aapt2"
+      - name: Build immutable RemoteFetchV2 DEX jar
+        run: |
+          mkdir -p build
+          curl --fail --location --retry 3 --output build/r8.jar https://storage.googleapis.com/r8-releases/raw/9.1.31/r8.jar
+          python3 client/remote-fetch/build_remote_fetch.py --r8-jar build/r8.jar --output build/remote-preinstall.jar
+      - name: Assemble GitHub Pages content
+        run: |
+          python3 server/scripts/build_public.py --remote-jar build/remote-preinstall.jar --output server/public
+          test -s server/public/manifest.json
+          test -s server/public/remote-preinstall.jar
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: server/public
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2-rom-artifacts
+          path: |
+            build/remote-preinstall.jar
+            server/manifest.json
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

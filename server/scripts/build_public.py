@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Build the immutable GitHub Pages payload directory from a validated V2 manifest."""
+import argparse
+import hashlib
+import json
+import shutil
+from pathlib import Path, PurePosixPath
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--manifest", type=Path, default=ROOT / "manifest.json")
+    parser.add_argument("--artifact-dir", type=Path, default=ROOT / "apk")
+    parser.add_argument("--remote-jar", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=ROOT / "public")
+    args = parser.parse_args()
+
+    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    if manifest.get("schemaVersion") != 3 or not manifest.get("releaseId"):
+        raise SystemExit("Expected manifest schemaVersion=3 with releaseId")
+    output = args.output.resolve()
+    if output.exists():
+        shutil.rmtree(output)
+    payload = output / "payload"
+    payload.mkdir(parents=True)
+    shutil.copy2(args.manifest, output / "manifest.json")
+    if not args.remote_jar.is_file():
+        raise SystemExit(f"Remote helper jar is missing: {args.remote_jar}")
+    shutil.copy2(args.remote_jar, output / "remote-preinstall.jar")
+
+    seen = set()
+    for package in manifest.get("packages", []):
+        payload_info = package.get("payload", {})
+        relative = payload_info.get("path", "")
+        rel_path = PurePosixPath(relative)
+        if len(rel_path.parts) != 2 or rel_path.parts[0] != "payload" or rel_path.name != relative.split("/")[-1]:
+            raise SystemExit(f"Unsafe payload path: {relative}")
+        if relative in seen:
+            raise SystemExit(f"Duplicate payload path: {relative}")
+        seen.add(relative)
+        source = args.artifact_dir / rel_path.name
+        if not source.is_file() or digest(source) != payload_info.get("sha256"):
+            raise SystemExit(f"Payload does not match manifest hash: {source}")
+        shutil.copy2(source, output / rel_path)
+    print(f"Built {output} for {manifest['releaseId']}")
+
+
+if __name__ == "__main__":
+    main()
