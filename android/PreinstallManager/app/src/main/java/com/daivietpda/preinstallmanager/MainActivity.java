@@ -39,10 +39,11 @@ public final class MainActivity extends Activity {
     private File runtimeDirectory;
     private FileObserver observer;
     private boolean active;
+    private String lastRenderKey = "";
     private final Runnable poller = new Runnable() {
         @Override public void run() {
             refreshStatus();
-            if (active) mainHandler.postDelayed(this, 1000);
+            if (active) mainHandler.postDelayed(this, 2000);
         }
     };
 
@@ -196,7 +197,7 @@ public final class MainActivity extends Activity {
     }
 
     private StatusSnapshot readSnapshot() {
-        if (runtimeDirectory == null) return new StatusSnapshot("unknown", "storage", "", "External storage unavailable", "", "");
+        if (runtimeDirectory == null) return new StatusSnapshot("unknown", "storage", "", getString(R.string.storage_unavailable), "", "");
         try {
             File status = new File(runtimeDirectory, STATUS_FILE);
             String raw = status.isFile() ? new String(Files.readAllBytes(status.toPath()), StandardCharsets.UTF_8) : "";
@@ -216,15 +217,59 @@ public final class MainActivity extends Activity {
     }
 
     private void render(StatusSnapshot item) {
-        String packageLine = item.packageName.isEmpty() ? "" : "\nPackage: " + item.packageName;
-        String releaseLine = item.releaseId.isEmpty() ? "" : "\nRelease: " + item.releaseId;
-        statusView.setText("State: " + item.state + "\nPhase: " + item.phase + packageLine + releaseLine + "\n" + item.message);
+        String renderKey = item.state + "\u0000" + item.phase + "\u0000" + item.packageName + "\u0000"
+                + item.message + "\u0000" + item.releaseId + "\u0000" + item.log;
+        if (renderKey.equals(lastRenderKey)) return;
+        lastRenderKey = renderKey;
+        String packageLine = item.packageName.isEmpty() ? "" : getString(R.string.package_line, item.packageName);
+        String releaseLine = item.releaseId.isEmpty() ? "" : getString(R.string.release_line, item.releaseId);
+        statusView.setText(getString(R.string.status_summary, localizeState(item.state), localizePhase(item.phase),
+                packageLine, releaseLine, localizeMessage(item.message)));
         logView.setText(item.log.isEmpty() ? getString(R.string.no_log) : item.log);
+    }
+
+    private String localizeState(String value) {
+        switch (value) {
+            case "idle": return getString(R.string.state_idle);
+            case "running": return getString(R.string.state_running);
+            case "complete": return getString(R.string.state_complete);
+            case "failed": return getString(R.string.state_failed);
+            default: return getString(R.string.state_unknown);
+        }
+    }
+
+    private String localizePhase(String value) {
+        switch (value) {
+            case "idle": return getString(R.string.phase_idle);
+            case "local-scan": return getString(R.string.phase_local_scan);
+            case "manifest": return getString(R.string.phase_manifest);
+            case "download-payload": return getString(R.string.phase_download);
+            case "verify": return getString(R.string.phase_verify);
+            case "install": return getString(R.string.phase_install);
+            case "uninstall": return getString(R.string.phase_uninstall);
+            case "complete": return getString(R.string.phase_complete);
+            case "error":
+            case "read-error": return getString(R.string.phase_error);
+            default: return value;
+        }
+    }
+
+    private String localizeMessage(String value) {
+        switch (value) {
+            case "Starting preinstall": return getString(R.string.message_starting);
+            case "Installing local APK": return getString(R.string.message_local_install);
+            case "Downloading payload": return getString(R.string.message_download);
+            case "Applying uninstall policy": return getString(R.string.message_uninstall);
+            case "Installing verified payload": return getString(R.string.message_install);
+            case "Preinstall complete": return getString(R.string.message_complete);
+            case "Preinstall finished with errors": return getString(R.string.message_failed);
+            default: return value;
+        }
     }
 
     private void copyLog() {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("Preinstall V2 log", logView.getText()));
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.clipboard_label), logView.getText()));
         Toast.makeText(this, R.string.log_copied, Toast.LENGTH_SHORT).show();
     }
 

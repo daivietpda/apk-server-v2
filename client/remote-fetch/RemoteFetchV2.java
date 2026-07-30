@@ -48,7 +48,11 @@ public final class RemoteFetchV2 {
         }
 
         Throwable lastError = null;
-        for (String endpoint : BASE_ENDPOINTS) {
+        String preferred = System.getenv("REMOTE_FETCH_PREFERRED_ENDPOINT");
+        int preferredIndex = endpointIndex(preferred);
+        for (int attempt = 0; attempt < BASE_ENDPOINTS.length; attempt++) {
+            int endpointIndex = preferredIndex >= 0 ? (preferredIndex + attempt) % BASE_ENDPOINTS.length : attempt;
+            String endpoint = BASE_ENDPOINTS[endpointIndex];
             URL initial = new URL(endpoint + relativePath);
             try {
                 System.out.println("RemoteFetchV2: attempt endpoint=" + endpoint + " path=" + relativePath);
@@ -64,6 +68,13 @@ public final class RemoteFetchV2 {
         throw new IllegalStateException("all configured endpoints failed for " + relativePath, lastError);
     }
 
+    private static int endpointIndex(String value) {
+        if (value == null) return -1;
+        for (int index = 0; index < BASE_ENDPOINTS.length; index++) {
+            if (BASE_ENDPOINTS[index].equals(value)) return index;
+        }
+        return -1;
+    }
     private static String validateRelativePath(String value) throws Exception {
         URI uri = new URI(value);
         if (value.length() == 0 || value.length() > 240 || uri.isAbsolute() || uri.getRawQuery() != null
