@@ -22,3 +22,8 @@ payload/<immutable APK or ZIP filename>
 4. GitHub Actions validates artifacts, rebuilds the V2 manifest and DEX helper, then deploys Pages.
 
 Do not commit signing keys, release APKs, local Android caches, or the private V1/V2 reference documents.
+## Documentation
+
+- [Vietnamese operations guide](server/README.vi.md)
+- Primary CDN: `https://apk.daivietpda.com/`
+- Direct fallback: `https://daivietpda.github.io/apk-server-v2/`

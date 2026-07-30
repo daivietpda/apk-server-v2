@@ -1,157 +1,147 @@
-# APK Server
+# APK Server V2 — hướng dẫn vận hành
 
-Nguồn GitHub Pages dùng để cài đặt, cập nhật, bắt buộc duy trì hoặc gỡ từ xa các ứng dụng Android dạng data app có thể gỡ.
+Repository: `https://github.com/daivietpda/apk-server-v2`
 
-Tài liệu tiếng Anh: [README.md](README.md).
+Endpoint V2:
 
-## URL công khai
+- CDN chính: `https://apk.daivietpda.com/`
+- GitHub Pages dự phòng: `https://daivietpda.github.io/apk-server-v2/`
+- Manifest: `manifest.json`
+- Payload: `payload/<filename>`
 
-- Manifest: `https://daivietpda.github.io/apk-server/manifest.json`
-- APK/Split ZIP: `https://daivietpda.github.io/apk-server/apk/<tên-file>`
-- DEX helper tải HTTPS: `https://daivietpda.github.io/apk-server/remote-preinstall.jar`
+Manifest schema v3 không chứa URL từ server. Android helper chỉ nhận relative path và tự chọn endpoint trong HTTPS allowlist được nhúng khi build.
 
-## Định dạng payload
+## Build manifest và publish APK
 
-### APK đơn
+1. Mở thư mục `server/apk/`.
+2. Thêm, thay hoặc xóa file `.apk` hay Split APK `.zip`.
+3. Commit và push lên nhánh `master`.
+4. Workflow **Build manifest and publish APK server V2** tự động:
+   - kiểm tra APK/Split ZIP bằng `aapt2`;
+   - chạy unit test;
+   - tạo `manifest.json` schema v3;
+   - kiểm tra package, versionCode, size và SHA-256;
+   - build `RemoteFetchV2` thành DEX jar;
+   - tạo thư mục Pages `manifest.json`, `remote-preinstall.jar`, `payload/`;
+   - deploy lên GitHub Pages và custom domain Cloudflare.
 
-Đặt file `.apk` trực tiếp trong `apk/`. GitHub Actions dùng `aapt2` đọc `packageName` và `versionCode` thực tế từ APK.
+Có thể build/publish lại không thay policy bằng cách mở:
 
-### Split APK dạng ZIP
+**Actions → Build manifest and publish APK server V2 → Run workflow**
 
-Đặt file `.zip` trong `apk/`. ZIP phải có cấu trúc phẳng, chỉ chứa file `.apk` viết thường và bắt buộc có `base.apk`:
+Giữ mặc định `force_install=unchanged`, `uninstall_action=unchanged`, để trống các package/file không cần sửa rồi chọn **Run workflow**.
+
+Tên payload nên có versionCode hoặc hash để URL bất biến. Không thay byte mới vào cùng URL payload đã cache lâu.
+
+## Nhóm cài đặt
+
+Các input trong **Run workflow**:
+
+- `apk_file`: tên chính xác file `.apk` hoặc `.zip` trong `server/apk/`.
+- `package_name`: application ID thực tế; bắt buộc khi `force_install=true`.
+- `force_install`:
+  - `unchanged`: giữ policy hiện tại;
+  - `true`: nếu người dùng gỡ app, lượt chạy sau sẽ cài lại;
+  - `false`: người dùng được phép gỡ, hệ thống không tự cài lại app đã gỡ.
+
+Ví dụ bật bắt buộc cài lại Downloader:
 
 ```text
-ExampleTV.zip
-├── base.apk
-├── split_config.arm64_v8a.apk
-├── split_config.vi.apk
-└── split_config.xhdpi.apk
+apk_file: downloader.apk
+package_name: com.esaba.downloader
+force_install: true
+uninstall_action: unchanged
 ```
 
-Workflow từ chối thư mục con, file không phải APK, trên 64 APK, dung lượng giải nén trên 1 GiB hoặc các split không cùng package/version. Android giải nén bằng `unzip` rồi cài toàn bộ split qua PackageInstaller session: `install-create`, `install-write`, `install-commit`.
+Ví dụ tắt bắt buộc cài lại:
 
-## Hành vi manifest
-
-Mỗi entry được sinh từ metadata thật, SHA-256 và kích thước payload:
-
-```json
-{
-  "name": "ExampleTV",
-  "packageName": "com.example.tv",
-  "versionCode": 120,
-  "format": "splitZip",
-  "forceInstall": false,
-  "url": "https://daivietpda.github.io/apk-server/apk/ExampleTV.zip",
-  "sha256": "...",
-  "size": 12345678
-}
+```text
+apk_file: downloader.apk
+package_name: để trống
+force_install: false
+uninstall_action: unchanged
 ```
 
-Khi boot hoặc khi PreinstallManager yêu cầu chạy thủ công, ROM sẽ:
+Policy được lưu tại `server/manifest-policy.json`. Workflow commit policy và manifest sinh tự động trở lại nhánh `master`, vì vậy thay đổi vẫn còn ở lần publish tiếp theo.
 
-- cài package chưa từng được quản lý;
-- chỉ cập nhật khi `versionCode` trên server cao hơn;
-- không downgrade;
-- tôn trọng package người dùng đã gỡ nếu `forceInstall=false`;
-- cài lại package bị thiếu nếu `forceInstall=true`;
-- kiểm tra SHA-256 và phiên bản sau khi cài.
+## Nhóm gỡ ứng dụng
 
-Bản cập nhật phải giữ cùng `packageName`, cùng signing certificate và tăng `versionCode`.
+Các input:
 
-## Chính sách forceInstall
+- `uninstall_package`: application ID cần gỡ.
+- `uninstall_action`:
+  - `unchanged`: giữ policy hiện tại;
+  - `once`: chỉ áp dụng khi manifest/release thay đổi;
+  - `enforce`: mỗi lượt chạy đều bảo đảm package không còn cài cho user chỉ định;
+  - `remove`: xóa quy tắc gỡ khỏi policy.
+- `uninstall_keep_data`: bật để dùng `pm uninstall -k`.
+- `uninstall_user_id`: Android user ID, thông thường là `0` trên Android TV.
 
-Policy được lưu lâu dài trong `manifest-policy.json`. Bật bắt buộc cài lại:
+Ví dụ luôn gỡ package nhưng giữ data:
 
-```bat
-manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --set-apk downloader.apk --package-name com.esaba.downloader --force-install true
+```text
+force_install: unchanged
+uninstall_package: com.example.oldapp
+uninstall_action: enforce
+uninstall_keep_data: true
+uninstall_user_id: 0
 ```
 
-Tắt chính sách:
+Xóa quy tắc:
 
-```bat
-manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --set-apk downloader.apk --force-install false
+```text
+force_install: unchanged
+uninstall_package: com.example.oldapp
+uninstall_action: remove
+uninstall_keep_data: false
+uninstall_user_id: 0
 ```
 
-`packageName` phải khớp application ID thật bên trong APK/ZIP.
+Một package không được xuất hiện đồng thời trong nhóm cài và nhóm gỡ. Muốn thêm uninstall rule cho package đang có payload, phải xóa APK/ZIP đó khỏi `server/apk/` trước; generator sẽ từ chối nếu phát hiện xung đột.
 
-## Chính sách gỡ ứng dụng từ xa
+Policy gỡ được lưu tại `server/uninstall-policy.json`. ROM dùng `pm uninstall [ -k ] --user <id>`. Với system app, APK read-only vẫn nằm trong image nhưng package bị gỡ/ẩn cho Android user tương ứng.
 
-Quy tắc gỡ được lưu trong `uninstall-policy.json` và xuất hiện dưới `uninstallPackages` của manifest v2:
+## Split APK ZIP
 
-```json
-{
-  "action": "uninstall",
-  "packageName": "com.example.oldapp",
-  "enforce": true,
-  "keepData": false,
-  "userId": 0
-}
+ZIP phải phẳng, chỉ chứa `.apk` viết thường và có `base.apk` ở thư mục gốc:
+
+```text
+base.apk
+split_config.armeabi_v7a.apk
+split_config.xhdpi.apk
+split_config.vi.apk
 ```
 
-Thêm quy tắc gỡ một lần khi manifest thay đổi:
-
-```bat
-manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --uninstall-package com.example.oldapp --uninstall-action once --uninstall-user-id 0
-```
-
-Luôn bảo đảm package bị gỡ và giữ dữ liệu:
-
-```bat
-manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --uninstall-package com.example.oldapp --uninstall-action enforce --uninstall-keep-data true --uninstall-user-id 0
-```
-
-Xóa quy tắc khỏi policy:
-
-```bat
-manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --uninstall-package com.example.oldapp --uninstall-action remove
-```
-
-ROM dùng `pm uninstall [ -k ] --user <id>`. Với system app, thao tác chỉ gỡ package cho Android user tương ứng; APK read-only vẫn nằm trong image. Một package không được đồng thời xuất hiện trong `packages` và `uninstallPackages`: phải xóa APK/ZIP khỏi `apk/` trước khi thêm quy tắc gỡ.
-
-Theo yêu cầu thiết kế, `factoryreset.conf` không có allowlist package được gỡ. Cần bảo vệ quyền ghi repository và tài khoản GitHub Actions. Manifest hiện dựa vào HTTPS; payload được kiểm tra thêm SHA-256 nhưng manifest chưa được ký bằng khóa offline.
+Tất cả split phải cùng packageName và versionCode. Generator giới hạn số split và tổng dung lượng giải nén; Android dùng PackageInstaller session, abandon session nếu lỗi.
 
 ## Chạy cục bộ
 
-`aapt2` phải có trong `PATH` hoặc truyền đường dẫn đầy đủ:
+```bat
+server\manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe
+```
+
+Bật forceInstall cục bộ:
 
 ```bat
-manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe
+server\manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --set-apk downloader.apk --package-name com.esaba.downloader --force-install true
 ```
 
-Commit các file được sinh/cập nhật:
+## Cloudflare/GitHub Pages
 
-```text
-manifest.json
-manifest-policy.json
-uninstall-policy.json
-```
+`apk.daivietpda.com` là custom domain của Pages V2 và DNS đang qua Cloudflare proxy. GitHub Pages direct vẫn là fallback độc lập với hostname Cloudflare.
 
-## Chạy bằng GitHub Actions
+Cache Rules đề xuất trong Cloudflare Dashboard:
 
-Mở **Actions → Build manifest and publish APK server → Run workflow**.
+- `apk.daivietpda.com/payload/*`: Cache Everything, Edge TTL 30 ngày;
+- `apk.daivietpda.com/manifest.json`: Cache Everything, Edge TTL 60 giây;
+- `apk.daivietpda.com/remote-preinstall.jar`: Cache Everything, Edge TTL 5 phút.
 
-Nhóm cài đặt:
+Sau khi thay policy/manifest có thể purge riêng `manifest.json`; không purge toàn bộ payload nếu tên payload bất biến.
 
-- `apk_file`: tên chính xác của `.apk` hoặc `.zip` trong `apk/`.
-- `package_name`: application ID, bắt buộc khi bật `force_install`.
-- `force_install`: `true`, `false` hoặc `unchanged`.
+## Bảo mật
 
-Nhóm gỡ ứng dụng:
-
-- `uninstall_package`: package cần gỡ.
-- `uninstall_action`: `once`, `enforce`, `remove` hoặc `unchanged`.
-- `uninstall_keep_data`: giữ dữ liệu bằng tùy chọn `-k`.
-- `uninstall_user_id`: Android user, thông thường là `0` trên Android TV.
-
-Khi push thông thường, input rỗng mặc định thành `unchanged`. Workflow kiểm tra toàn bộ APK/Split ZIP, tạo lại policy/manifest, build `RemoteFetch.java` thành DEX jar, commit file sinh tự động và deploy GitHub Pages.
-
-## Cấu trúc server
-
-```text
-apk/                       APK và Split ZIP
-scripts/update_manifest.py Công cụ tạo manifest/policy
-tools/RemoteFetch.java     Helper Android tải HTTPS có giới hạn host
-manifest-policy.json       Chính sách forceInstall
-uninstall-policy.json      Chính sách gỡ package
-manifest.json              Manifest công khai được sinh tự động
-```
+- Chỉ HTTPS và hostname allowlist nhúng trong helper.
+- Redirect ra ngoài allowlist bị từ chối.
+- Payload phải khớp SHA-256 và size trước khi cài.
+- Không commit signing key, token, APK release nội bộ, cache hoặc hai tài liệu tham chiếu riêng.
+- Quyền ghi repository/Actions có thể điều khiển chính sách cài/gỡ; chỉ cấp cho người quản trị tin cậy.

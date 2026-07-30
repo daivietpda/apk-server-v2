@@ -1,28 +1,72 @@
-name: Build and deploy APK Server V2
+name: Build manifest and publish APK server V2
 
 on:
   push:
     branches: [master]
     paths:
-      - 'server/**'
+      - 'server/apk/**'
+      - 'server/manifest-policy.json'
+      - 'server/uninstall-policy.json'
+      - 'server/scripts/**'
+      - 'server/tests/**'
       - 'client/remote-fetch/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
+    inputs:
+      apk_file:
+        description: 'Install group: exact APK/ZIP filename; empty means rebuild all'
+        required: false
+        type: string
+      package_name:
+        description: 'Install group: Android packageName; required for force_install=true'
+        required: false
+        type: string
+      force_install:
+        description: 'Install group: forced reinstall policy'
+        required: true
+        default: unchanged
+        type: choice
+        options: [unchanged, 'true', 'false']
+      uninstall_package:
+        description: 'Uninstall group: Android packageName to remove'
+        required: false
+        type: string
+      uninstall_action:
+        description: 'Uninstall group: remote uninstall policy'
+        required: true
+        default: unchanged
+        type: choice
+        options: [unchanged, once, enforce, remove]
+      uninstall_keep_data:
+        description: 'Uninstall group: keep app data with pm uninstall -k'
+        required: true
+        default: false
+        type: boolean
+      uninstall_user_id:
+        description: 'Uninstall group: Android user ID, normally 0 on Android TV'
+        required: true
+        default: '0'
+        type: string
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 concurrency:
   group: apk-server-v2-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,21 +76,91 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Install Android build tools
         run: sdkmanager 'build-tools;35.0.1'
-      - name: Validate and generate manifest schema v3
+      - name: Apply requested policy and generate manifest schema v3
+        shell: bash
+        env:
+          APK_FILE: ${{ inputs.apk_file }}
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          FORCE_INSTALL: ${{ inputs.force_install }}
+          UNINSTALL_PACKAGE: ${{ inputs.uninstall_package }}
+          UNINSTALL_ACTION: ${{ inputs.uninstall_action }}
+          UNINSTALL_KEEP_DATA: ${{ inputs.uninstall_keep_data }}
+          UNINSTALL_USER_ID: ${{ inputs.uninstall_user_id }}
         run: |
-          python3 -m py_compile server/scripts/update_manifest.py server/scripts/build_public.py client/remote-fetch/build_remote_fetch.py
+          APK_FILE="${APK_FILE:-}"
+          PACKAGE_NAME="${PACKAGE_NAME:-}"
+          FORCE_INSTALL="${FORCE_INSTALL:-unchanged}"
+          UNINSTALL_PACKAGE="${UNINSTALL_PACKAGE:-}"
+          UNINSTALL_ACTION="${UNINSTALL_ACTION:-unchanged}"
+          UNINSTALL_KEEP_DATA="${UNINSTALL_KEEP_DATA:-false}"
+          UNINSTALL_USER_ID="${UNINSTALL_USER_ID:-0}"
+
+          python3 -m py_compile \
+            server/scripts/update_manifest.py \
+            server/scripts/build_public.py \
+            client/remote-fetch/build_remote_fetch.py
           python3 -m unittest discover -s server/tests -v
-          python3 server/scripts/update_manifest.py --aapt2 "$ANDROID_HOME/build-tools/35.0.1/aapt2"
+
+          args=(--aapt2 "$ANDROID_HOME/build-tools/35.0.1/aapt2")
+          if [[ "$FORCE_INSTALL" != "unchanged" ]]; then
+            if [[ -z "$APK_FILE" ]]; then
+              echo "apk_file is required when force_install is true or false" >&2
+              exit 2
+            fi
+            args+=(--set-apk "$APK_FILE" --package-name "$PACKAGE_NAME" --force-install "$FORCE_INSTALL")
+          elif [[ -n "$APK_FILE" ]]; then
+            echo "Rebuilding all payload metadata; forceInstall for $APK_FILE is unchanged"
+          fi
+
+          if [[ "$UNINSTALL_ACTION" != "unchanged" ]]; then
+            if [[ -z "$UNINSTALL_PACKAGE" ]]; then
+              echo "uninstall_package is required when uninstall_action is not unchanged" >&2
+              exit 2
+            fi
+            args+=(--uninstall-package "$UNINSTALL_PACKAGE" \
+              --uninstall-action "$UNINSTALL_ACTION" \
+              --uninstall-keep-data "$UNINSTALL_KEEP_DATA" \
+              --uninstall-user-id "$UNINSTALL_USER_ID")
+          elif [[ -n "$UNINSTALL_PACKAGE" ]]; then
+            echo "Ignoring uninstall_package because uninstall_action is unchanged"
+          fi
+
+          python3 server/scripts/update_manifest.py "${args[@]}"
+
+      - name: Commit generated policy and manifest
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add server/manifest.json server/manifest-policy.json server/uninstall-policy.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update generated V2 APK manifest and policies'
+            git push origin HEAD:master
+          else
+            echo 'Manifest and policies are already current'
+          fi
+
       - name: Build immutable RemoteFetchV2 DEX jar
+        shell: bash
         run: |
           mkdir -p build
-          curl --fail --location --retry 3 --output build/r8.jar https://storage.googleapis.com/r8-releases/raw/9.1.31/r8.jar
-          python3 client/remote-fetch/build_remote_fetch.py --r8-jar build/r8.jar --output build/remote-preinstall.jar
-      - name: Assemble GitHub Pages content
+          curl --fail --location --retry 3 \
+            --output build/r8.jar \
+            https://storage.googleapis.com/r8-releases/raw/9.1.31/r8.jar
+          python3 client/remote-fetch/build_remote_fetch.py \
+            --r8-jar build/r8.jar \
+            --output build/remote-preinstall.jar
+
+      - name: Assemble and validate GitHub Pages content
+        shell: bash
         run: |
-          python3 server/scripts/build_public.py --remote-jar build/remote-preinstall.jar --output server/public
+          python3 server/scripts/build_public.py \
+            --remote-jar build/remote-preinstall.jar \
+            --output server/public
+          touch server/public/.nojekyll
           test -s server/public/manifest.json
           test -s server/public/remote-preinstall.jar
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: server/public
@@ -56,6 +170,8 @@ jobs:
           path: |
             build/remote-preinstall.jar
             server/manifest.json
+            server/manifest-policy.json
+            server/uninstall-policy.json
           if-no-files-found: error
 
   deploy:
