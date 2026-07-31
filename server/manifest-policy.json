@@ -13,8 +13,8 @@
     },
     {
       "file": "downloader.zip",
-      "packageName": "",
-      "forceInstall": false
+      "packageName": "com.esaba.downloader",
+      "forceInstall": true
     },
     {
       "file": "FPTPlay[7.32.11].zip",

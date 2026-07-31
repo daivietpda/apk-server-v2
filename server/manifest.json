@@ -30,7 +30,7 @@
       "packageName": "com.esaba.downloader",
       "versionCode": 74,
       "format": "splitZip",
-      "forceInstall": false,
+      "forceInstall": true,
       "payload": {
         "path": "payload/com.esaba.downloader-74-e6444201987b.zip",
         "sha256": "e6444201987b21fbcec40854bf593d769c06109771632403581b6b85ecfc8d7b",
@@ -131,5 +131,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-7f9dbdbc25b0955b6638"
+  "releaseId": "v3-41e5966ade3a036a933d"
 }
