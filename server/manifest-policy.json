@@ -22,6 +22,11 @@
       "forceInstall": false
     },
     {
+      "file": "iMediaTV[25.04.06.B.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
       "file": "Launch-On-Boot.v1.4.6.apk",
       "packageName": "",
       "forceInstall": false

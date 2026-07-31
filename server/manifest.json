@@ -50,6 +50,18 @@
       }
     },
     {
+      "name": "iMediaTV[25.04.06.B",
+      "packageName": "com.kt.apps.media.xemtv.beta",
+      "versionCode": 25042101,
+      "format": "apk",
+      "forceInstall": false,
+      "payload": {
+        "path": "payload/com.kt.apps.media.xemtv.beta-25042101-680a89f9da4e.apk",
+        "sha256": "680a89f9da4e84aed3a7c1e8e01dc385abbde0d66fb03efe0444cf19cc860962",
+        "size": 21032715
+      }
+    },
+    {
       "name": "Launch-On-Boot.v1.4.6",
       "packageName": "news.androidtv.launchonboot",
       "versionCode": 146,
@@ -107,5 +119,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-bbfa64cb502e742c866c"
+  "releaseId": "v3-7fa8e6682955f2a470f5"
 }
