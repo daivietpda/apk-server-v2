@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import worker, { safeEqual, validatePayload } from "../src/worker.js";
+import worker, { safeEqual, stats, validatePayload } from "../src/worker.js";
 
 const valid = {
   schemaVersion: "1",
@@ -32,6 +32,37 @@ test("valid telemetry payload is normalized", () => {
   const item = validatePayload(valid);
   assert.equal(item.deviceId, valid.deviceId);
   assert.equal(item.packageName, "com.example.tv");
+});
+
+test("stats groups total devices by normalized model and SDK", async () => {
+  const groupRows = [
+    { model: 'Leap-S1', sdk: '29', deviceCount: 4, onlineDevices: 2 },
+    { model: 'Không xác định', sdk: '34', deviceCount: 1, onlineDevices: 0 },
+  ];
+  const env = {
+    DB: {
+      prepare(sql) {
+        const statement = {
+          bind() { return statement; },
+          async first() {
+            if (sql.includes('COUNT(*) AS totalDevices')) {
+              return { totalDevices: 5, onlineDevices: 2, activeInstalls: 0 };
+            }
+            return { downloads24h: 0, installs24h: 0, failures24h: 0 };
+          },
+          async all() {
+            if (sql.includes('AS deviceCount')) return { results: groupRows };
+            return { results: [] };
+          },
+        };
+        return statement;
+      },
+    },
+  };
+  const result = await stats(env);
+  assert.equal(result.totalDevices, 5);
+  assert.deepEqual(result.deviceGroups, groupRows);
+  assert.equal(result.deviceGroups.reduce((sum, item) => sum + item.deviceCount, 0), result.totalDevices);
 });
 
 test("hardware-style and unexpected fields cannot bypass validation", () => {

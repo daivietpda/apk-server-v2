@@ -12,6 +12,8 @@ Telemetry này chỉ dành cho APK Server V2. V1 không bị thay đổi và kh�
 
 Dashboard: `https://apk.daivietpda.com/telemetry`
 
+Dashboard có bảng **Tổng thiết bị theo Model / SDK**. Mỗi dòng hiển thị Model, Android SDK, tổng số thiết bị đã ghi nhận và số thiết bị online trong 10 phút gần nhất. Model hoặc SDK trống được gom vào nhóm `Không xác định`. API Basic Auth `/api/v2/stats` trả dữ liệu này trong mảng `deviceGroups` với các trường `model`, `sdk`, `deviceCount`, `onlineDevices`.
+
 Health check công khai: `https://apk.daivietpda.com/api/v2/health`
 
 Storage health có Basic Authentication: `https://apk.daivietpda.com/api/v2/storage-health`
