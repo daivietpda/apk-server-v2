@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import worker, { safeEqual, validatePayload } from "../src/worker.js";
 
 const valid = {
@@ -43,6 +44,45 @@ test("health endpoint does not require database or credentials", async () => {
   const response = await worker.fetch(new Request("https://apk.daivietpda.com/api/v2/health"), {});
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, service: "apk-server-v2-telemetry" });
+});
+
+test("authenticated storage health verifies manifest payloads and helper", async () => {
+  const dashboardToken = "d".repeat(32);
+  const manifest = {
+    schemaVersion: 3,
+    releaseId: "v3-storage-test",
+    packages: [{
+      packageName: "com.example.tv",
+      versionCode: 42,
+      payload: { path: "payload/com.example.tv-42-aaaaaaaaaaaa.apk", sha256: "a".repeat(64), size: 123 },
+    }],
+  };
+  const bucket = {
+    async get(key) {
+      assert.equal(key, "manifest.json");
+      return { size: 512, uploaded: new Date("2026-07-31T00:00:00Z"), async json() { return manifest; } };
+    },
+    async head(key) {
+      if (key === manifest.packages[0].payload.path) return { size: 123 };
+      if (key === "remote-preinstall.jar") return { size: 456 };
+      return null;
+    },
+  };
+  const request = new Request("https://apk.daivietpda.com/api/v2/storage-health", {
+    headers: { Authorization: `Basic ${Buffer.from(`admin:${dashboardToken}`).toString("base64")}` },
+  });
+  const response = await worker.fetch(request, { DASHBOARD_TOKEN: dashboardToken, ARTIFACTS: bucket });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.ok, true);
+  assert.equal(result.releaseId, "v3-storage-test");
+  assert.equal(result.presentObjects, 2);
+  assert.equal(result.declaredObjects, 2);
+});
+
+test("Worker uses the R2 binding read-only", async () => {
+  const source = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /ARTIFACTS\.(?:put|delete|createMultipartUpload)\s*\(/);
 });
 
 test("ingest rejects missing secret before touching D1", async () => {

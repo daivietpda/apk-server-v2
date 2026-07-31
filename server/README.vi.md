@@ -22,8 +22,9 @@ Manifest schema v3 không chứa URL từ server. Android helper chỉ nhận re
    - tạo `manifest.json` schema v3;
    - kiểm tra package, versionCode, size và SHA-256;
    - build `RemoteFetchV2` thành DEX jar;
-   - tạo thư mục Pages `manifest.json`, `remote-preinstall.jar`, `payload/`;
-   - deploy lên GitHub Pages và custom domain Cloudflare.
+   - tạo một public layout duy nhất gồm `manifest.json`, `remote-preinstall.jar`, `payload/`;
+   - deploy cùng byte lên GitHub Pages và R2; R2 luôn upload payload/helper trước, `manifest.json` cuối cùng;
+   - kiểm chứng release, size và toàn bộ object trên cả hai origin.
 
 Có thể build/publish lại không thay policy bằng cách mở:
 
@@ -31,7 +32,7 @@ Có thể build/publish lại không thay policy bằng cách mở:
 
 Giữ mặc định `force_install=unchanged`, `uninstall_action=unchanged`, để trống các package/file không cần sửa rồi chọn **Run workflow**.
 
-Tên payload nên có versionCode hoặc hash để URL bất biến. Không thay byte mới vào cùng URL payload đã cache lâu.
+Generator tự tạo key bất biến dạng `payload/<packageName>-<versionCode>-<sha12>.apk|zip`. Không thay byte mới vào cùng key payload đã cache lâu.
 
 ## Nhóm cài đặt
 
@@ -126,17 +127,61 @@ Bật forceInstall cục bộ:
 server\manifest.bat --aapt2 C:\Android-SDK\build-tools\35.0.1\aapt2.exe --set-apk downloader.apk --package-name com.esaba.downloader --force-install true
 ```
 
-## Cloudflare/GitHub Pages
+## Cloudflare R2 và GitHub Pages
 
-`apk.daivietpda.com` là custom domain của Pages V2 và DNS đang qua Cloudflare proxy. GitHub Pages direct vẫn là fallback độc lập với hostname Cloudflare.
+Kiến trúc production:
 
-Cache Rules đề xuất trong Cloudflare Dashboard:
+- primary artifact: `https://apk.daivietpda.com/` → Cloudflare Cache → bucket R2 `apk-server-v2-artifacts`;
+- fallback độc lập: `https://daivietpda.github.io/apk-server-v2/` → GitHub Pages;
+- Worker chỉ bắt `/api/v2/*` và `/telemetry*`; APK/ZIP không đi xuyên qua Worker;
+- domain shadow dùng khi thử release/cutover: `https://r2-apk.daivietpda.com/`.
 
-- `apk.daivietpda.com/payload/*`: Cache Everything, Edge TTL 30 ngày;
-- `apk.daivietpda.com/manifest.json`: Cache Everything, Edge TTL 60 giây;
-- `apk.daivietpda.com/remote-preinstall.jar`: Cache Everything, Edge TTL 5 phút.
+Repository variables:
 
-Sau khi thay policy/manifest có thể purge riêng `manifest.json`; không purge toàn bộ payload nếu tên payload bất biến.
+```text
+R2_BUCKET_NAME=apk-server-v2-artifacts
+R2_SHADOW_BASE_URL=https://r2-apk.daivietpda.com/
+R2_PUBLISH_ENABLED=true
+```
+
+Repository secrets cần cho GitHub Actions:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+R2_ACCESS_KEY_ID
+R2_SECRET_ACCESS_KEY
+```
+
+Tạo R2 API token loại **Object Read & Write**, chỉ áp dụng bucket `apk-server-v2-artifacts`. Không dùng Global API Key và không cấp quyền xóa bucket. Workflow dùng S3 endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+
+Thứ tự publish cố định:
+
+1. validate/build public layout;
+2. upload payload bất biến;
+3. upload helper immutable và `remote-preinstall.jar`;
+4. upload `release-index/<releaseId>.json`;
+5. upload `manifest.json` cuối cùng;
+6. kiểm chứng domain R2 và GitHub Pages cùng release.
+
+Cache Rules đề xuất:
+
+- `/payload/*`: Cache Everything, Edge TTL 30 ngày hoặc lâu hơn;
+- `/manifest.json`: Edge TTL 60 giây;
+- `/remote-preinstall.jar`: Edge TTL 5 phút;
+- `/api/v2/*` và `/telemetry*`: bypass cache.
+
+Chỉ purge `manifest.json` và helper tên ổn định sau publish; không purge payload bất biến. Không dùng `sync --delete`. Giữ payload cũ tối thiểu 90–180 ngày và diễn tập rollback trước khi bật lifecycle delete.
+
+### Publish R2 bằng GitHub Actions
+
+1. Tạo hai R2 secrets và ba variables ở trên.
+2. Chạy workflow một lần khi `R2_PUBLISH_ENABLED=false` để kiểm tra Pages.
+3. Đổi `R2_PUBLISH_ENABLED=true`.
+4. Mở **Actions → Build manifest and publish APK server V2 → Run workflow**.
+5. Kiểm tra các job `deploy_pages`, `publish_r2` và `verify_dual_origin` đều thành công.
+6. Mở dashboard `/telemetry`, mục **R2 storage** phải báo đủ object và đúng release ID.
+
+Nếu job R2 lỗi, không xóa payload đã upload. Sửa secret/object rồi chạy lại; publisher có thể dùng lại object immutable đã xác minh và vẫn chỉ thay manifest ở bước cuối.
 
 ## Bảo mật
 

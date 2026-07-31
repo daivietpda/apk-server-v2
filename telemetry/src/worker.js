@@ -12,6 +12,9 @@ const ALLOWED_ENDPOINTS = new Set([
 const MAX_BODY_BYTES = 4096;
 const ONLINE_WINDOW_SECONDS = 600;
 const EVENT_RETENTION_DAYS = 90;
+const STORAGE_CACHE_SECONDS = 120;
+const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+let cachedStorageHealth = null;
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store",
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
@@ -204,15 +207,77 @@ async function stats(env) {
   };
 }
 
+export async function storageHealth(env) {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedStorageHealth && cachedStorageHealth.expiresAt > now) return cachedStorageHealth.value;
+  let value;
+  try {
+    if (!env.ARTIFACTS) throw new Error("R2 binding unavailable");
+    const object = await env.ARTIFACTS.get("manifest.json");
+    if (!object) throw new Error("manifest.json is missing from R2");
+    if (!Number.isFinite(object.size) || object.size <= 0 || object.size > MAX_MANIFEST_BYTES) {
+      throw new Error("R2 manifest size is invalid");
+    }
+    const manifest = await object.json();
+    if (manifest.schemaVersion !== 3 || typeof manifest.releaseId !== "string"
+        || !Array.isArray(manifest.packages)) {
+      throw new Error("R2 manifest schema is invalid");
+    }
+    const missingObjects = [];
+    const sizeMismatches = [];
+    let declaredBytes = 0;
+    for (const item of manifest.packages) {
+      const payload = item && item.payload;
+      if (!payload || typeof payload.path !== "string" || !payload.path.startsWith("payload/")
+          || !Number.isSafeInteger(payload.size) || payload.size <= 0) {
+        throw new Error("R2 manifest payload metadata is invalid");
+      }
+      declaredBytes += payload.size;
+      const head = await env.ARTIFACTS.head(payload.path);
+      if (!head) missingObjects.push(payload.path);
+      else if (head.size !== payload.size) sizeMismatches.push(payload.path);
+    }
+    const helper = await env.ARTIFACTS.head("remote-preinstall.jar");
+    if (!helper) missingObjects.push("remote-preinstall.jar");
+    value = {
+      ok: missingObjects.length === 0 && sizeMismatches.length === 0,
+      releaseId: manifest.releaseId,
+      manifestUpdatedAt: object.uploaded instanceof Date ? object.uploaded.toISOString() : "",
+      declaredObjects: manifest.packages.length + 1,
+      presentObjects: manifest.packages.length + 1 - missingObjects.length,
+      missingObjects,
+      sizeMismatches,
+      declaredBytes,
+      checkedAt: new Date(now * 1000).toISOString(),
+    };
+  } catch (error) {
+    console.error("R2 storage health failed", error);
+    value = {
+      ok: false,
+      error: error && error.message ? error.message : "storage health failed",
+      releaseId: "",
+      declaredObjects: 0,
+      presentObjects: 0,
+      missingObjects: [],
+      sizeMismatches: [],
+      declaredBytes: 0,
+      checkedAt: new Date(now * 1000).toISOString(),
+    };
+  }
+  cachedStorageHealth = { expiresAt: now + STORAGE_CACHE_SECONDS, value };
+  return value;
+}
+
 const DASHBOARD = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>APK Server V2 Telemetry</title><style>
 :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#102027;color:#eef;padding:24px}h1{margin-top:0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.card,section{background:#182b32;border:1px solid #31545e;border-radius:10px;padding:16px}.value{font-size:32px;font-weight:700;color:#80cbc4}section{margin-top:16px;overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;border-bottom:1px solid #31545e;padding:8px;white-space:nowrap}.ok{color:#80cbc4}.bad{color:#ff8a80}button{background:#00695c;color:white;border:1px solid #80cbc4;border-radius:8px;padding:10px 18px}button:focus{background:white;color:black}</style></head><body>
 <h1>APK Server V2 — Telemetry</h1><button id="refresh">Làm mới</button><span id="updated"></span><div class="cards" id="cards"></div>
 <section><h2>Thiết bị gần đây</h2><table><thead><tr><th>Device ID</th><th>Online</th><th>Trạng thái</th><th>Giai đoạn</th><th>Package</th><th>Model / SDK</th><th>Release</th><th>Thời gian</th></tr></thead><tbody id="devices"></tbody></table></section>
 <section><h2>Lượt tải theo APK</h2><table><thead><tr><th>Package</th><th>Version</th><th>Lượt tải</th></tr></thead><tbody id="downloads"></tbody></table></section>
+<section><h2>R2 storage</h2><div id="storage">Đang kiểm tra…</div></section>
 <section><h2>Lỗi gần nhất</h2><table><thead><tr><th>Thời gian</th><th>Device ID</th><th>Sự kiện</th><th>Package</th><th>Thông báo</th></tr></thead><tbody id="failures"></tbody></table></section>
 <script>
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const time=v=>new Date(Number(v)*1000).toLocaleString('vi-VN');
-async function load(){const r=await fetch('/api/v2/stats',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();const cards=[['Tổng thiết bị',d.totalDevices],['Online 10 phút',d.onlineDevices],['Đang cài đặt',d.activeInstalls],['Lượt tải 24h',d.downloads24h],['Cài thành công 24h',d.installs24h],['Lỗi 24h',d.failures24h]];document.querySelector('#cards').innerHTML=cards.map(x=>'<div class="card"><div>'+esc(x[0])+'</div><div class="value">'+esc(x[1])+'</div></div>').join('');document.querySelector('#updated').textContent=' Cập nhật: '+time(d.generatedAt);document.querySelector('#devices').innerHTML=d.recentDevices.map(x=>'<tr><td>'+esc(x.deviceId.slice(0,8))+'…</td><td class="'+(x.lastSeen>=d.generatedAt-d.onlineWindowSeconds?'ok':'')+'">'+(x.lastSeen>=d.generatedAt-d.onlineWindowSeconds?'Có':'Không')+'</td><td>'+esc(x.state)+'</td><td>'+esc(x.phase)+'</td><td>'+esc(x.packageName)+'</td><td>'+esc(x.model)+' / '+esc(x.sdk)+'</td><td>'+esc(x.releaseId)+'</td><td>'+time(x.lastSeen)+'</td></tr>').join('');document.querySelector('#downloads').innerHTML=d.downloads.map(x=>'<tr><td>'+esc(x.packageName)+'</td><td>'+esc(x.versionCode)+'</td><td>'+esc(x.downloads)+'</td></tr>').join('');document.querySelector('#failures').innerHTML=d.recentFailures.map(x=>'<tr><td>'+time(x.receivedAt)+'</td><td>'+esc(x.deviceId.slice(0,8))+'…</td><td class="bad">'+esc(x.event)+'</td><td>'+esc(x.packageName)+'</td><td>'+esc(x.message)+'</td></tr>').join('')}
+async function load(){const [r,sr]=await Promise.all([fetch('/api/v2/stats',{cache:'no-store'}),fetch('/api/v2/storage-health',{cache:'no-store'})]);if(!r.ok||!sr.ok)throw new Error('HTTP '+r.status+'/'+sr.status);const d=await r.json(),s=await sr.json();const cards=[['Tổng thiết bị',d.totalDevices],['Online 10 phút',d.onlineDevices],['Đang cài đặt',d.activeInstalls],['Lượt tải 24h',d.downloads24h],['Cài thành công 24h',d.installs24h],['Lỗi 24h',d.failures24h],['R2 storage',s.ok?'OK':'Lỗi']];document.querySelector('#cards').innerHTML=cards.map(x=>'<div class="card"><div>'+esc(x[0])+'</div><div class="value '+(x[0]==='R2 storage'&&!s.ok?'bad':'')+'">'+esc(x[1])+'</div></div>').join('');document.querySelector('#updated').textContent=' Cập nhật: '+time(d.generatedAt);document.querySelector('#storage').innerHTML='<b class="'+(s.ok?'ok':'bad')+'">'+(s.ok?'Đồng bộ':'Chưa hoàn chỉnh')+'</b> · Release '+esc(s.releaseId||'—')+' · '+esc(s.presentObjects)+'/'+esc(s.declaredObjects)+' object · '+esc(s.declaredBytes)+' byte · kiểm tra '+esc(s.checkedAt)+(s.error?'<br><span class="bad">'+esc(s.error)+'</span>':'')+(s.missingObjects?.length?'<br>Thiếu: '+esc(s.missingObjects.join(', ')):'')+(s.sizeMismatches?.length?'<br>Sai kích thước: '+esc(s.sizeMismatches.join(', ')):'');document.querySelector('#devices').innerHTML=d.recentDevices.map(x=>'<tr><td>'+esc(x.deviceId.slice(0,8))+'…</td><td class="'+(x.lastSeen>=d.generatedAt-d.onlineWindowSeconds?'ok':'')+'">'+(x.lastSeen>=d.generatedAt-d.onlineWindowSeconds?'Có':'Không')+'</td><td>'+esc(x.state)+'</td><td>'+esc(x.phase)+'</td><td>'+esc(x.packageName)+'</td><td>'+esc(x.model)+' / '+esc(x.sdk)+'</td><td>'+esc(x.releaseId)+'</td><td>'+time(x.lastSeen)+'</td></tr>').join('');document.querySelector('#downloads').innerHTML=d.downloads.map(x=>'<tr><td>'+esc(x.packageName)+'</td><td>'+esc(x.versionCode)+'</td><td>'+esc(x.downloads)+'</td></tr>').join('');document.querySelector('#failures').innerHTML=d.recentFailures.map(x=>'<tr><td>'+time(x.receivedAt)+'</td><td>'+esc(x.deviceId.slice(0,8))+'…</td><td class="bad">'+esc(x.event)+'</td><td>'+esc(x.packageName)+'</td><td>'+esc(x.message)+'</td></tr>').join('')}
 document.querySelector('#refresh').onclick=()=>load().catch(e=>alert(e));load().catch(e=>alert(e));setInterval(()=>load().catch(()=>{}),30000);
 </script></body></html>`;
 
@@ -223,6 +288,10 @@ async function handle(request, env, context) {
   if (url.pathname === "/api/v2/stats" && request.method === "GET") {
     if (!isAdmin(request, env)) return unauthorized();
     return json(await stats(env));
+  }
+  if (url.pathname === "/api/v2/storage-health" && request.method === "GET") {
+    if (!isAdmin(request, env)) return unauthorized();
+    return json(await storageHealth(env));
   }
   if ((url.pathname === "/telemetry" || url.pathname === "/telemetry/") && request.method === "GET") {
     if (!isAdmin(request, env)) return unauthorized();

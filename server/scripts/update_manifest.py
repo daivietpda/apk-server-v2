@@ -59,6 +59,12 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def immutable_payload_name(package_name, version_code, artifact_sha256, suffix):
+    if not PACKAGE_RE.fullmatch(package_name) or not re.fullmatch(r"[0-9a-f]{64}", artifact_sha256):
+        raise ValueError("Cannot build immutable payload name from invalid metadata")
+    return f"{package_name}-{version_code}-{artifact_sha256[:12]}{suffix.lower()}"
+
+
 def apk_metadata(aapt2, path):
     result = subprocess.run(
         [aapt2, "dump", "badging", str(path)], check=True, capture_output=True,
@@ -143,6 +149,8 @@ def build_manifest(aapt2, policies, uninstall_policies):
         force_install = bool(policy.get("forceInstall", False))
         if configured_package and configured_package != package_name:
             raise ValueError(f"packageName policy mismatch for {artifact.name}: configured={configured_package}, actual={package_name}")
+        artifact_sha256 = sha256(artifact)
+        payload_name = immutable_payload_name(package_name, version_code, artifact_sha256, artifact.suffix)
         normalized_policies.append({"file": artifact.name, "packageName": package_name if force_install else "", "forceInstall": force_install})
         packages.append({
             "name": artifact.stem,
@@ -150,7 +158,7 @@ def build_manifest(aapt2, policies, uninstall_policies):
             "versionCode": version_code,
             "format": package_format,
             "forceInstall": force_install,
-            "payload": {"path": f"payload/{artifact.name}", "sha256": sha256(artifact), "size": artifact.stat().st_size},
+            "payload": {"path": f"payload/{payload_name}", "sha256": artifact_sha256, "size": artifact.stat().st_size},
         })
 
     if len({item["packageName"] for item in packages}) != len(packages):

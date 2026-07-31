@@ -4,15 +4,17 @@ Telemetry này chỉ dành cho APK Server V2. V1 không bị thay đổi và kh�
 
 ## Thành phần
 
-- `src/worker.js`: API ingest, API thống kê và dashboard tiếng Việt.
+- `src/worker.js`: API ingest, API thống kê, R2 storage-health và dashboard tiếng Việt.
 - `migrations/0001_initial.sql`: schema Cloudflare D1.
-- `wrangler.toml.example`: hai Worker route dưới `apk.daivietpda.com`; không chặn manifest hay payload.
+- `wrangler.toml.example`: hai Worker route dưới `apk.daivietpda.com` và binding `ARTIFACTS` tới bucket `apk-server-v2-artifacts`; không chặn manifest hay payload.
 - `test/`: unit test chạy bằng Node.js, không cần Cloudflare account.
 - Android gửi hàng đợi qua lớp `TelemetryV2` nằm chung `remote-preinstall.jar`.
 
 Dashboard: `https://apk.daivietpda.com/telemetry`
 
 Health check công khai: `https://apk.daivietpda.com/api/v2/health`
+
+Storage health có Basic Authentication: `https://apk.daivietpda.com/api/v2/storage-health`
 
 ## Dữ liệu được lưu
 
@@ -70,6 +72,17 @@ Tạo repository secrets:
 - `TELEMETRY_DASHBOARD_TOKEN`
 
 Mở **Actions → Test and deploy V2 telemetry → Run workflow**, bật `deploy=true`. Push thông thường chỉ chạy test, không tự deploy Worker.
+
+## R2 storage health
+
+Worker dùng binding `ARTIFACTS` theo hướng chỉ đọc trong mã nguồn: chỉ gọi `get`/`head`, không có `put`, `delete` hoặc multipart upload. API đọc `manifest.json`, HEAD tất cả payload và helper rồi báo:
+
+- release ID và thời gian upload manifest;
+- số object khai báo/hiện có;
+- object thiếu hoặc sai kích thước;
+- tổng dung lượng payload theo manifest.
+
+Kết quả được cache 120 giây trong isolate để tránh HEAD toàn bộ bucket ở mỗi lần refresh. Endpoint và dashboard yêu cầu cùng `DASHBOARD_TOKEN`; `/api/v2/health` vẫn công khai và không chạm D1/R2.
 
 ## Hành vi Android
 

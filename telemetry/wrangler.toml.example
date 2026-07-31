@@ -13,3 +13,7 @@ binding = "DB"
 database_name = "apk-server-v2-telemetry"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "apk-server-v2-artifacts"

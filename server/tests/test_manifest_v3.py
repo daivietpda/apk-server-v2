@@ -16,6 +16,17 @@ class ManifestV3Test(unittest.TestCase):
         changed = [{"packageName": "com.example.tv", "payload": {"path": "payload/tv.apk", "sha256": "b" * 64, "size": 1}}]
         self.assertNotEqual(manifest.stable_release_id(packages, uninstall), manifest.stable_release_id(changed, uninstall))
 
+    def test_payload_name_is_content_addressed_and_client_safe(self):
+        name = manifest.immutable_payload_name(
+            "com.example.tv", 120, "a" * 64, ".APK"
+        )
+        self.assertEqual(name, "com.example.tv-120-aaaaaaaaaaaa.apk")
+        self.assertRegex(name, r"^[A-Za-z0-9._-]+$")
+
+    def test_payload_name_rejects_invalid_hash(self):
+        with self.assertRaises(ValueError):
+            manifest.immutable_payload_name("com.example.tv", 1, "not-a-hash", ".apk")
+
     def test_invalid_split_limit_is_defined(self):
         self.assertGreater(manifest.MAX_SPLIT_APKS, 0)
         self.assertGreater(manifest.MAX_SPLIT_EXPANDED_BYTES, 0)

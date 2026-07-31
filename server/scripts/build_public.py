@@ -38,6 +38,14 @@ def main():
         raise SystemExit(f"Remote helper jar is missing: {args.remote_jar}")
     shutil.copy2(args.remote_jar, output / "remote-preinstall.jar")
 
+    artifacts_by_digest = {}
+    for artifact in args.artifact_dir.iterdir():
+        if artifact.is_file() and artifact.suffix.lower() in (".apk", ".zip"):
+            artifact_digest = digest(artifact)
+            if artifact_digest in artifacts_by_digest:
+                raise SystemExit(f"Duplicate artifact content: {artifact} and {artifacts_by_digest[artifact_digest]}")
+            artifacts_by_digest[artifact_digest] = artifact
+
     seen = set()
     for package in manifest.get("packages", []):
         payload_info = package.get("payload", {})
@@ -48,9 +56,9 @@ def main():
         if relative in seen:
             raise SystemExit(f"Duplicate payload path: {relative}")
         seen.add(relative)
-        source = args.artifact_dir / rel_path.name
-        if not source.is_file() or digest(source) != payload_info.get("sha256"):
-            raise SystemExit(f"Payload does not match manifest hash: {source}")
+        source = artifacts_by_digest.get(payload_info.get("sha256"))
+        if source is None or source.stat().st_size != payload_info.get("size"):
+            raise SystemExit(f"Payload source does not match manifest: {relative}")
         shutil.copy2(source, output / rel_path)
     print(f"Built {output} for {manifest['releaseId']}")
 

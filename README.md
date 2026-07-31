@@ -4,7 +4,7 @@ V2 is an Android removable-preinstall delivery system. It generates a schema-v3 
 
 ## Publish layout
 
-GitHub Pages is built by `.github/workflows/pages.yml`:
+A single public layout is built by `.github/workflows/pages.yml`, published to R2 as primary storage, and deployed byte-identically to GitHub Pages as the independent fallback:
 
 ```text
 manifest.json
@@ -19,7 +19,7 @@ payload/<immutable APK or ZIP filename>
 1. Place APK or flat Split APK ZIP files in `server/apk/`.
 2. Update `server/manifest-policy.json` for `forceInstall`, and `server/uninstall-policy.json` for uninstall policy.
 3. Run `server/manifest.bat` locally, inspect the diff, then commit/push.
-4. GitHub Actions validates artifacts, rebuilds the V2 manifest and DEX helper, then deploys Pages.
+4. GitHub Actions validates artifacts, rebuilds the V2 manifest and DEX helper, uploads immutable payloads to R2 before publishing the manifest, deploys Pages, and verifies both origins.
 
 Do not commit signing keys, release APKs, local Android caches, or the private V1/V2 reference documents.
 ## Documentation

@@ -54,12 +54,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: apk-server-v2-pages
+  group: apk-server-v2-release
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,8 +73,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - id: pages
-        uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v5
       - name: Install Android build tools
         run: sdkmanager 'build-tools;35.0.1'
       - name: Apply requested policy and generate manifest schema v3
@@ -98,6 +98,8 @@ jobs:
           python3 -m py_compile \
             server/scripts/update_manifest.py \
             server/scripts/build_public.py \
+            server/scripts/publish_r2.py \
+            server/scripts/verify_release.py \
             client/remote-fetch/build_remote_fetch.py
           python3 -m unittest discover -s server/tests -v
 
@@ -151,7 +153,7 @@ jobs:
             --r8-jar build/r8.jar \
             --output build/remote-preinstall.jar
 
-      - name: Assemble and validate GitHub Pages content
+      - name: Assemble and validate public release layout
         shell: bash
         run: |
           python3 server/scripts/build_public.py \
@@ -166,6 +168,13 @@ jobs:
           path: server/public
       - uses: actions/upload-artifact@v4
         with:
+          name: v2-public-layout
+          path: server/public
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
           name: v2-rom-artifacts
           path: |
             build/remote-preinstall.jar
@@ -174,12 +183,79 @@ jobs:
             server/uninstall-policy.json
           if-no-files-found: error
 
-  deploy:
+  deploy_pages:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  publish_r2:
+    if: vars.R2_PUBLISH_ENABLED == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: r2-shadow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v2-public-layout
+          path: server/public
+      - name: Validate R2 credentials
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$AWS_ACCESS_KEY_ID" || { echo 'R2_ACCESS_KEY_ID is missing' >&2; exit 2; }
+          test -n "$AWS_SECRET_ACCESS_KEY" || { echo 'R2_SECRET_ACCESS_KEY is missing' >&2; exit 2; }
+          test -n "$CF_ACCOUNT_ID" || { echo 'CLOUDFLARE_ACCOUNT_ID is missing' >&2; exit 2; }
+      - name: Publish payload first and manifest last
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir 'boto3>=1.35,<2'
+          python3 server/scripts/publish_r2.py \
+            --public-dir server/public \
+            --bucket "$R2_BUCKET_NAME"
+      - name: Verify R2 shadow release
+        env:
+          R2_SHADOW_BASE_URL: ${{ vars.R2_SHADOW_BASE_URL }}
+        run: |
+          python3 server/scripts/verify_release.py \
+            --public-dir server/public \
+            --base-url "$R2_SHADOW_BASE_URL"
+
+  verify_dual_origin:
+    if: vars.R2_PUBLISH_ENABLED == 'true'
+    needs: [build, deploy_pages, publish_r2]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v2-public-layout
+          path: server/public
+      - name: Verify R2 and GitHub Pages expose the same release
+        env:
+          R2_SHADOW_BASE_URL: ${{ vars.R2_SHADOW_BASE_URL }}
+        run: |
+          python3 server/scripts/verify_release.py \
+            --public-dir server/public \
+            --base-url "$R2_SHADOW_BASE_URL" \
+            --base-url 'https://daivietpda.github.io/apk-server-v2/'

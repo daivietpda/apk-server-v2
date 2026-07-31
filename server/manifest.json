@@ -8,7 +8,7 @@
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/AptoideTV-5.0.2.apk",
+        "path": "payload/cm.aptoidetv.pt-522-ad84ea7cd125.apk",
         "sha256": "ad84ea7cd125bc319c76ea4315403eef2914ed5ea5eb6a42a6a8c58cf1d2a0ba",
         "size": 12127870
       }
@@ -20,7 +20,7 @@
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/cobalt.apk",
+        "path": "payload/com.google.android.youtube.tv-1-46ee3adb5cba.apk",
         "sha256": "46ee3adb5cbac54b1497cd96fdcfb54e7069a53a3998abebbc9fe8c3caceec29",
         "size": 15338330
       }
@@ -32,7 +32,7 @@
       "format": "apk",
       "forceInstall": true,
       "payload": {
-        "path": "payload/downloader.apk",
+        "path": "payload/com.esaba.downloader-52-e2337dbdf904.apk",
         "sha256": "e2337dbdf9049a7922ce1c9f9dc81c4c1bf5b6b0d1e76c1adfdcca77835e7c2b",
         "size": 5422893
       }
@@ -44,7 +44,7 @@
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/Launch-On-Boot.v1.4.6.apk",
+        "path": "payload/news.androidtv.launchonboot-146-4787c7a50115.apk",
         "sha256": "4787c7a501159a5fb2c7de50c18089ed15e90132c86af54c35ddfe43f67e02b0",
         "size": 8956968
       }
@@ -56,7 +56,7 @@
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/smarttube_stable.apk",
+        "path": "payload/org.smarttube.stable-2384-9705f4452c52.apk",
         "sha256": "9705f4452c52fc563b6f31f6164eb4d2007f0f611f46de28184a83e412fd908c",
         "size": 24981437
       }
@@ -68,7 +68,7 @@
       "format": "splitZip",
       "forceInstall": true,
       "payload": {
-        "path": "payload/VTVgoTV.zip",
+        "path": "payload/vn.vtv.vtvgotv-316-6d0924de740a.zip",
         "sha256": "6d0924de740a6f51ef9a8392087c7ccf060b62a15009b81712f67b26cc05a36e",
         "size": 36123247
       }
@@ -80,7 +80,7 @@
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/Xplore.apk",
+        "path": "payload/com.lonelycatgames.Xplore-42004-e1ed44adb0ad.apk",
         "sha256": "e1ed44adb0ad17528083add3a21b0a8ead36caf030defbd0d4634541d285b29b",
         "size": 7329802
       }
@@ -95,5 +95,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-035a63fcbf00270c05c2"
+  "releaseId": "v3-e2af62e7116c9b5592aa"
 }
