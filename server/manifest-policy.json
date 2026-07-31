@@ -17,6 +17,11 @@
       "forceInstall": true
     },
     {
+      "file": "fpt-play-7.32.11.zip",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
       "file": "Launch-On-Boot.v1.4.6.apk",
       "packageName": "",
       "forceInstall": false

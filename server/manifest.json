@@ -38,6 +38,18 @@
       }
     },
     {
+      "name": "fpt-play-7.32.11",
+      "packageName": "net.fptplay.ottbox",
+      "versionCode": 4361,
+      "format": "splitZip",
+      "forceInstall": false,
+      "payload": {
+        "path": "payload/net.fptplay.ottbox-4361-975640dfe214.zip",
+        "sha256": "975640dfe21484e6589a75739c408574fa7de58e788cc65c43b182210f9b4b50",
+        "size": 86852848
+      }
+    },
+    {
       "name": "Launch-On-Boot.v1.4.6",
       "packageName": "news.androidtv.launchonboot",
       "versionCode": 146,
@@ -95,5 +107,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-e2af62e7116c9b5592aa"
+  "releaseId": "v3-266586019a951beae3c8"
 }
