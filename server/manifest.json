@@ -38,15 +38,15 @@
       }
     },
     {
-      "name": "fpt-play-7.32.11",
+      "name": "FPTPlay[7.32.11]",
       "packageName": "net.fptplay.ottbox",
       "versionCode": 4361,
       "format": "splitZip",
       "forceInstall": false,
       "payload": {
-        "path": "payload/net.fptplay.ottbox-4361-975640dfe214.zip",
-        "sha256": "975640dfe21484e6589a75739c408574fa7de58e788cc65c43b182210f9b4b50",
-        "size": 86852848
+        "path": "payload/net.fptplay.ottbox-4361-778cd2309b85.zip",
+        "sha256": "778cd2309b859845cd8189bac257be792f4bf97d9134b0d05759c079b2f27aee",
+        "size": 87111644
       }
     },
     {
@@ -107,5 +107,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-266586019a951beae3c8"
+  "releaseId": "v3-bbfa64cb502e742c866c"
 }
