@@ -12,9 +12,9 @@
       "forceInstall": false
     },
     {
-      "file": "downloader.apk",
-      "packageName": "com.esaba.downloader",
-      "forceInstall": true
+      "file": "downloader.zip",
+      "packageName": "",
+      "forceInstall": false
     },
     {
       "file": "FPTPlay[7.32.11].zip",
@@ -33,6 +33,11 @@
     },
     {
       "file": "smarttube_stable.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
+      "file": "VieON[31.0.2].zip",
       "packageName": "",
       "forceInstall": false
     },

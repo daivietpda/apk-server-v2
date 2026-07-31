@@ -28,13 +28,13 @@
     {
       "name": "downloader",
       "packageName": "com.esaba.downloader",
-      "versionCode": 52,
-      "format": "apk",
-      "forceInstall": true,
+      "versionCode": 74,
+      "format": "splitZip",
+      "forceInstall": false,
       "payload": {
-        "path": "payload/com.esaba.downloader-52-e2337dbdf904.apk",
-        "sha256": "e2337dbdf9049a7922ce1c9f9dc81c4c1bf5b6b0d1e76c1adfdcca77835e7c2b",
-        "size": 5422893
+        "path": "payload/com.esaba.downloader-74-e6444201987b.zip",
+        "sha256": "e6444201987b21fbcec40854bf593d769c06109771632403581b6b85ecfc8d7b",
+        "size": 12253738
       }
     },
     {
@@ -86,6 +86,18 @@
       }
     },
     {
+      "name": "VieON[31.0.2]",
+      "packageName": "com.vieon.tv",
+      "versionCode": 2012360516,
+      "format": "splitZip",
+      "forceInstall": false,
+      "payload": {
+        "path": "payload/com.vieon.tv-2012360516-6d0631133faa.zip",
+        "sha256": "6d0631133faa8bf6a35c8cb8bb7affb081af8f72291ab66388106601dc2d4e7e",
+        "size": 43827651
+      }
+    },
+    {
       "name": "VTVgoTV",
       "packageName": "vn.vtv.vtvgotv",
       "versionCode": 316,
@@ -119,5 +131,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-7fa8e6682955f2a470f5"
+  "releaseId": "v3-7f9dbdbc25b0955b6638"
 }
