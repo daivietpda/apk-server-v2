@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 import ssl
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -13,12 +15,37 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def request(url, method="GET"):
+def open_with_retry(value, url, method, attempts):
+    retryable_status = {408, 425, 429, 500, 502, 503, 504}
+    for attempt in range(1, attempts + 1):
+        try:
+            return urllib.request.urlopen(value, timeout=45, context=ssl.create_default_context())
+        except urllib.error.HTTPError as error:
+            if error.code not in retryable_status or attempt == attempts:
+                raise
+            error.close()
+        except urllib.error.URLError:
+            if attempt == attempts:
+                raise
+        delay = min(5 * attempt, 20)
+        print(f'Retrying method={method} url={url} attempt={attempt + 1}/{attempts} delay={delay}s')
+        time.sleep(delay)
+    raise RuntimeError(f'Request retry loop exhausted: {url}')
+
+
+def request(url, method="GET", attempts=5):
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
         raise ValueError(f"Only HTTPS endpoints are accepted: {url}")
     value = urllib.request.Request(url, method=method, headers={"User-Agent": "APK-Server-V2-Release-Verify/1"})
-    return urllib.request.urlopen(value, timeout=45, context=ssl.create_default_context())
+    return open_with_retry(value, url, method, attempts)
+
+
+def require_same_origin(base_url, final_url):
+    base = urllib.parse.urlparse(base_url)
+    final = urllib.parse.urlparse(final_url)
+    if (base.scheme, base.netloc) != (final.scheme, final.netloc):
+        raise ValueError(f'Cross-origin redirect is not allowed: base={base_url} final={final_url}')
 
 
 def fetch_manifest(base_url):
@@ -42,6 +69,7 @@ def remote_size(url):
 
 def verify_origin(base_url, expected_bytes, expected_manifest, helper_size):
     actual_bytes, actual, final_url = fetch_manifest(base_url)
+    require_same_origin(base_url, final_url)
     if actual_bytes != expected_bytes:
         raise ValueError(f"Manifest bytes differ at {base_url}")
     if actual.get("releaseId") != expected_manifest.get("releaseId"):
@@ -51,11 +79,13 @@ def verify_origin(base_url, expected_bytes, expected_manifest, helper_size):
         payload = package.get("payload", {})
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", payload.get("path", ""))
         size, final = remote_size(url)
+        require_same_origin(base_url, final)
         if size != payload.get("size"):
             raise ValueError(f"Payload size differs at {url}: remote={size} manifest={payload.get('size')}")
         print(f"Verified payload package={package.get('packageName')} bytes={size} final={final}")
     helper_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", "remote-preinstall.jar")
     size, final = remote_size(helper_url)
+    require_same_origin(base_url, final)
     if size != helper_size:
         raise ValueError(f"Helper size differs at {helper_url}: remote={size} expected={helper_size}")
     print(f"Verified helper bytes={size} final={final}")

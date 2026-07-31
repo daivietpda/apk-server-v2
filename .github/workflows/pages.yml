@@ -251,11 +251,12 @@ jobs:
         with:
           name: v2-public-layout
           path: server/public
-      - name: Verify R2 and GitHub Pages expose the same release
+      - name: Verify R2 production, shadow and GitHub Pages expose the same release
         env:
           R2_SHADOW_BASE_URL: ${{ vars.R2_SHADOW_BASE_URL }}
         run: |
           python3 server/scripts/verify_release.py \
             --public-dir server/public \
+            --base-url 'https://apk.daivietpda.com/' \
             --base-url "$R2_SHADOW_BASE_URL" \
             --base-url 'https://daivietpda.github.io/apk-server-v2/'
