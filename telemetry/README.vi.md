@@ -24,14 +24,23 @@ Mỗi lần cài V2 tạo một UUID ngẫu nhiên trong `/data/local/tmp/.prein
 
 Các event: heartbeat, bắt đầu/kết thúc run, manifest, download, install và uninstall. Worker giữ event chi tiết 90 ngày và dọn nền theo xác suất thấp khi nhận event; bảng thiết bị giữ `first_seen`, `last_seen` và trạng thái cuối.
 
+## Xác thực và migration telemetry
+
+Client mới (runtime `2.3-telemetry2`) gửi `authVersion: "2"`, nonce ngẫu nhiên và chữ ký HMAC-SHA256 của toàn bộ payload chuẩn hóa. Worker chỉ chấp nhận timestamp trong ±10 phút, lưu nonce vào D1 trong 15 phút và từ chối nonce lặp lại. Chữ ký dùng `INGEST_TOKEN`; `deviceId` chỉ là nhãn thống kê do client tự khai báo, không phải bằng chứng danh tính.
+
+Để không làm gián đoạn ROM cũ, payload không có ba trường `authVersion`/`nonce`/`signature` vẫn được tiếp nhận trong giai đoạn migration. Payload legacy không có bảo vệ replay và không được xem là xác thực theo thiết bị. Khi tỷ lệ ROM mới đủ lớn, việc tắt legacy phải là một thay đổi triển khai riêng có thông báo trước.
+
+Worker có rate limit best-effort theo IP Cloudflare, token chung và deviceId claim. Rate limit giúp hạn chế lưu lượng; vì token đang được provision chung trong ROM, nó không thay thế credential riêng từng thiết bị và telemetry không được dùng cho quyết định bảo mật hoặc thanh toán.
+
 ## Tạo D1 và deploy lần đầu
 
 Yêu cầu Node.js 22 và Wrangler 4:
 
 ```powershell
 cd D:\apk-server-v2\telemetry
-npx wrangler@4 login
-npx wrangler@4 d1 create apk-server-v2-telemetry
+npm ci
+npx --no-install wrangler login
+npx --no-install wrangler d1 create apk-server-v2-telemetry
 Copy-Item wrangler.toml.example wrangler.toml
 ```
 
@@ -40,10 +49,10 @@ Thay `REPLACE_WITH_D1_DATABASE_ID` trong `wrangler.toml` bằng ID vừa tạo. 
 Tạo hai token ngẫu nhiên khác nhau, tối thiểu lần lượt 32 và 24 ký tự. Không commit hoặc ghi token vào tài liệu:
 
 ```powershell
-npx wrangler@4 secret put INGEST_TOKEN --config wrangler.toml
-npx wrangler@4 secret put DASHBOARD_TOKEN --config wrangler.toml
-npx wrangler@4 d1 migrations apply apk-server-v2-telemetry --remote --config wrangler.toml
-npx wrangler@4 deploy --config wrangler.toml
+npx --no-install wrangler secret put INGEST_TOKEN --config wrangler.toml
+npx --no-install wrangler secret put DASHBOARD_TOKEN --config wrangler.toml
+npx --no-install wrangler d1 migrations apply apk-server-v2-telemetry --remote --config wrangler.toml
+npx --no-install wrangler deploy --config wrangler.toml
 ```
 
 Đặt đúng giá trị `INGEST_TOKEN` vào ROM tại:

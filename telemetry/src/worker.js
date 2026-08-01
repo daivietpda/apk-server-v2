@@ -14,6 +14,16 @@ const ONLINE_WINDOW_SECONDS = 600;
 const EVENT_RETENTION_DAYS = 90;
 const STORAGE_CACHE_SECONDS = 120;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const AUTH_VERSION = "2";
+const MAX_EVENT_SKEW_SECONDS = 600;
+const NONCE_TTL_SECONDS = 900;
+const NONCE_EXPIRY_MARGIN_SECONDS = 60;
+const LEGACY_AUTH_MODES = new Set(["allow", "observe", "reject"]);
+const RATE_WINDOW_MS = 60_000;
+const IP_RATE_LIMIT = 60;
+const DEVICE_RATE_LIMIT = 30;
+// All ROMs currently share this credential, so this limit is deliberately high.
+const CREDENTIAL_RATE_LIMIT = 10_000;
 let cachedStorageHealth = null;
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store",
@@ -59,6 +69,15 @@ export function validatePayload(input) {
   if (!ALLOWED_EVENTS.has(event)) throw new Error("invalid event");
   const endpoint = cleanString(input.endpoint, "endpoint", 160);
   if (!ALLOWED_ENDPOINTS.has(endpoint)) throw new Error("invalid endpoint");
+  const suppliedAuthFields = [input.authVersion, input.nonce, input.signature]
+    .filter((value) => value !== undefined).length;
+  if (suppliedAuthFields !== 0 && suppliedAuthFields !== 3) throw new Error("incomplete authentication fields");
+  const authenticated = suppliedAuthFields === 3;
+  if (authenticated) {
+    if (input.authVersion !== AUTH_VERSION) throw new Error("unsupported authentication version");
+    if (typeof input.nonce !== "string" || !/^[A-Za-z0-9_-]{22,64}$/.test(input.nonce)) throw new Error("invalid nonce");
+    if (typeof input.signature !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.signature)) throw new Error("invalid signature");
+  }
   return {
     deviceId,
     event,
@@ -75,7 +94,123 @@ export function validatePayload(input) {
     sdk: cleanDigits(input.sdk, "sdk", 3),
     romVersion: cleanString(input.romVersion, "romVersion", 128),
     runtimeVersion: cleanString(input.runtimeVersion, "runtimeVersion", 40, false),
+    authVersion: authenticated ? AUTH_VERSION : "",
+    nonce: authenticated ? input.nonce : "",
+    signature: authenticated ? input.signature : "",
   };
+}
+
+export function canonicalEvent(item) {
+  return [
+    "apk-server-v2-telemetry", AUTH_VERSION, item.deviceId, item.event, item.eventTime, item.runId,
+    item.state, item.phase, item.packageName, item.versionCode, item.releaseId, item.endpoint,
+    item.message, item.model, item.sdk, item.romVersion, item.runtimeVersion, item.nonce,
+  ].join("\n");
+}
+
+function base64UrlBytes(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid signature");
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export async function verifyRequestAuthentication(item, token, nowSeconds) {
+  if (!item.authVersion) return { authenticated: false };
+  const eventTime = Number(item.eventTime);
+  if (!Number.isSafeInteger(eventTime) || Math.abs(nowSeconds - eventTime) > MAX_EVENT_SKEW_SECONDS) {
+    throw new Error("event timestamp is outside the allowed window");
+  }
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["verify"],
+  );
+  const verified = await crypto.subtle.verify(
+    "HMAC", key, base64UrlBytes(item.signature), new TextEncoder().encode(canonicalEvent(item)),
+  );
+  if (!verified) throw new Error("invalid request signature");
+  return { authenticated: true };
+}
+
+export function nonceExpirySeconds(eventTime, nowSeconds) {
+  if (!Number.isSafeInteger(eventTime) || !Number.isSafeInteger(nowSeconds)) {
+    throw new Error("invalid nonce expiry timestamp");
+  }
+  return Math.max(
+    nowSeconds + NONCE_TTL_SECONDS,
+    Math.max(nowSeconds, eventTime) + MAX_EVENT_SKEW_SECONDS + NONCE_EXPIRY_MARGIN_SECONDS,
+  );
+}
+
+export function legacyAuthMode(env) {
+  const mode = env.LEGACY_AUTH_MODE || "allow";
+  if (!LEGACY_AUTH_MODES.has(mode)) throw new Error("invalid LEGACY_AUTH_MODE");
+  return mode;
+}
+
+function clientAddress(request) {
+  const value = request.headers.get("CF-Connecting-IP") || "unknown";
+  return /^[0-9a-fA-F:.]{3,64}$/.test(value) ? value : "unknown";
+}
+
+async function rateLimitObjectName(scope, identity) {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode("apk-server-v2-rate-limit:" + scope + ":" + identity),
+  );
+  return scope + ":" + Array.from(
+    new Uint8Array(bytes),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+export async function takeDistributedRateLimit(env, scope, identity, limit, nowMs = Date.now()) {
+  if (!env.RATE_LIMITER || typeof env.RATE_LIMITER.idFromName !== "function") {
+    throw new Error("rate limiter binding is unavailable");
+  }
+  const objectId = env.RATE_LIMITER.idFromName(await rateLimitObjectName(scope, identity));
+  const response = await env.RATE_LIMITER.get(objectId).fetch("https://rate-limit/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit, nowMs }),
+  });
+  if (!response.ok) throw new Error("rate limiter request failed");
+  const result = await response.json();
+  if (!result || typeof result.allowed !== "boolean") throw new Error("rate limiter response is invalid");
+  return result.allowed;
+}
+
+export class RateLimiter {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    if (request.method !== "POST") return json({ ok: false, error: "method not allowed" }, 405);
+    let input;
+    try {
+      input = await request.json();
+    } catch (_) {
+      return json({ ok: false, error: "invalid rate limit request" }, 400);
+    }
+    const limit = Number(input && input.limit);
+    const nowMs = Number(input && input.nowMs);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > CREDENTIAL_RATE_LIMIT
+        || !Number.isSafeInteger(nowMs) || nowMs < 0) {
+      return json({ ok: false, error: "invalid rate limit request" }, 400);
+    }
+    const allowed = await this.state.storage.transaction(async (storage) => {
+      const previous = await storage.get("window");
+      const current = previous && Number.isSafeInteger(previous.windowStart)
+        && Number.isSafeInteger(previous.count) && previous.count > 0
+        && nowMs >= previous.windowStart && nowMs - previous.windowStart < RATE_WINDOW_MS
+        ? previous
+        : { windowStart: nowMs, count: 0 };
+      if (current.count >= limit) return false;
+      await storage.put("window", { windowStart: current.windowStart, count: current.count + 1 });
+      return true;
+    });
+    return json({ ok: true, allowed });
+  }
 }
 
 function json(data, status = 200) {
@@ -106,22 +241,107 @@ function isAdmin(request, env) {
   }
 }
 
+export async function readBodyLimited(request, maximumBytes = MAX_BODY_BYTES) {
+  const contentLength = request.headers.get("Content-Length");
+  if (contentLength !== null) {
+    if (!/^[0-9]+$/.test(contentLength)) throw new Error("invalid Content-Length");
+    if (Number(contentLength) > maximumBytes) throw new RangeError("payload too large");
+  }
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel("payload too large");
+        throw new RangeError("payload too large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
 async function ingest(request, env, context) {
   if (!env.INGEST_TOKEN || env.INGEST_TOKEN.length < 32
       || !safeEqual(request.headers.get("X-Telemetry-Key") || "", env.INGEST_TOKEN)) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
-  const declared = Number(request.headers.get("Content-Length") || 0);
-  if (declared > MAX_BODY_BYTES) return json({ ok: false, error: "payload too large" }, 413);
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) return json({ ok: false, error: "payload too large" }, 413);
+  const nowMs = Date.now();
+  let allowed;
+  let ipAllowed;
+  try {
+    [allowed, ipAllowed] = await Promise.all([
+      takeDistributedRateLimit(env, "credential", env.INGEST_TOKEN, CREDENTIAL_RATE_LIMIT, nowMs),
+      takeDistributedRateLimit(env, "ip", clientAddress(request), IP_RATE_LIMIT, nowMs),
+    ]);
+  } catch (error) {
+    console.error("telemetry rate limiter unavailable", error);
+    return json({ ok: false, error: "rate limiter unavailable" }, 503);
+  }
+  if (!allowed || !ipAllowed) {
+    return json({ ok: false, error: "rate limit exceeded" }, 429);
+  }
+  let raw;
+  try {
+    raw = await readBodyLimited(request);
+  } catch (error) {
+    if (error instanceof RangeError) return json({ ok: false, error: "payload too large" }, 413);
+    return json({ ok: false, error: "invalid request body" }, 400);
+  }
   let item;
   try {
     item = validatePayload(JSON.parse(raw));
   } catch (error) {
     return json({ ok: false, error: error.message }, 400);
   }
+  let legacyMode;
+  try {
+    legacyMode = legacyAuthMode(env);
+  } catch (error) {
+    console.error("telemetry legacy auth mode is invalid", error);
+    return json({ ok: false, error: "invalid server configuration" }, 500);
+  }
+  if (!item.authVersion && legacyMode === "reject") {
+    return json({ ok: false, error: "legacy telemetry is disabled" }, 403);
+  }
   const now = Math.floor(Date.now() / 1000);
+  try {
+    allowed = await takeDistributedRateLimit(env, "device", item.deviceId, DEVICE_RATE_LIMIT, nowMs);
+  } catch (error) {
+    console.error("telemetry rate limiter unavailable", error);
+    return json({ ok: false, error: "rate limiter unavailable" }, 503);
+  }
+  if (!allowed) {
+    return json({ ok: false, error: "rate limit exceeded" }, 429);
+  }
+  let authenticated;
+  try {
+    authenticated = await verifyRequestAuthentication(item, env.INGEST_TOKEN, now);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+  if (authenticated.authenticated) {
+    try {
+      await env.DB.prepare(
+        "INSERT INTO telemetry_nonces (nonce, expires_at) VALUES (?, ?)",
+      ).bind(item.nonce, nonceExpirySeconds(Number(item.eventTime), now)).run();
+    } catch (_) {
+      return json({ ok: false, error: "replayed request" }, 409);
+    }
+  }
   const eventTime = Number(item.eventTime);
   const upsert = env.DB.prepare(`
     INSERT INTO devices (
@@ -148,14 +368,18 @@ async function ingest(request, env, context) {
   const insert = env.DB.prepare(`
     INSERT INTO events (
       device_id, received_at, event_time, event, run_id, state, phase, package_name,
-      version_code, release_id, endpoint, message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      version_code, release_id, endpoint, message, auth_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(item.deviceId, now, eventTime, item.event, item.runId, item.state, item.phase,
-    item.packageName, item.versionCode, item.releaseId, item.endpoint, item.message);
+    item.packageName, item.versionCode, item.releaseId, item.endpoint, item.message,
+    authenticated.authenticated ? AUTH_VERSION : "legacy");
   await env.DB.batch([upsert, insert]);
   if (context && Math.random() < 0.01) {
     const cutoff = now - EVENT_RETENTION_DAYS * 86400;
     context.waitUntil(env.DB.prepare("DELETE FROM events WHERE received_at < ?").bind(cutoff).run());
+    if (authenticated.authenticated) {
+      context.waitUntil(env.DB.prepare("DELETE FROM telemetry_nonces WHERE expires_at < ?").bind(now).run());
+    }
   }
   return json({ ok: true }, 202);
 }
@@ -164,7 +388,7 @@ export async function stats(env) {
   const now = Math.floor(Date.now() / 1000);
   const onlineAfter = now - ONLINE_WINDOW_SECONDS;
   const dayAfter = now - 86400;
-  const [summary, outcomes, deviceGroups, recent, downloads, failures] = await Promise.all([
+  const [summary, outcomes, authVersions, deviceGroups, recent, downloads, failures] = await Promise.all([
     env.DB.prepare(`
       SELECT COUNT(*) AS totalDevices,
         COALESCE(SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END), 0) AS onlineDevices,
@@ -179,6 +403,11 @@ export async function stats(env) {
         COALESCE(SUM(CASE WHEN event IN ('run_failed','install_failed','download_failed','uninstall_failed','manifest_failed') THEN 1 ELSE 0 END), 0) AS failures24h
       FROM events WHERE received_at >= ?
     `).bind(dayAfter).first(),
+    env.DB.prepare(`
+      SELECT auth_version AS authVersion, COUNT(*) AS events
+      FROM events WHERE received_at >= ?
+      GROUP BY auth_version ORDER BY auth_version ASC
+    `).bind(dayAfter).all(),
     env.DB.prepare(`
       SELECT
         CASE WHEN TRIM(COALESCE(model, ''))='' THEN 'Không xác định' ELSE TRIM(model) END AS model,
@@ -213,6 +442,7 @@ export async function stats(env) {
     onlineWindowSeconds: ONLINE_WINDOW_SECONDS,
     ...summary,
     ...outcomes,
+    authVersions: authVersions.results || [],
     deviceGroups: deviceGroups.results || [],
     recentDevices: recent.results || [],
     downloads: downloads.results || [],
@@ -324,6 +554,10 @@ export default {
   },
   async scheduled(_event, env) {
     const cutoff = Math.floor(Date.now() / 1000) - EVENT_RETENTION_DAYS * 86400;
-    await env.DB.prepare("DELETE FROM events WHERE received_at < ?").bind(cutoff).run();
+    const now = Math.floor(Date.now() / 1000);
+    await Promise.all([
+      env.DB.prepare("DELETE FROM events WHERE received_at < ?").bind(cutoff).run(),
+      env.DB.prepare("DELETE FROM telemetry_nonces WHERE expires_at < ?").bind(now).run(),
+    ]);
   },
 };

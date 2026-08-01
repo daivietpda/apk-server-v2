@@ -3,6 +3,10 @@ main = "src/worker.js"
 compatibility_date = "2026-07-30"
 workers_dev = false
 
+[vars]
+# Keep old ROMs working until telemetry shows their rollout is complete.
+LEGACY_AUTH_MODE = "allow"
+
 routes = [
   { pattern = "apk.daivietpda.com/api/v2/*", zone_name = "daivietpda.com" },
   { pattern = "apk.daivietpda.com/telemetry*", zone_name = "daivietpda.com" }
@@ -17,3 +21,11 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "ARTIFACTS"
 bucket_name = "apk-server-v2-artifacts"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
