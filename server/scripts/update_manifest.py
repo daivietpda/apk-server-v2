@@ -18,6 +18,7 @@ PACKAGE_RE = re.compile(r"^[A-Za-z0-9._]+$")
 BADGING_RE = re.compile(r"^package: name='([^']+)' versionCode='([0-9]+)'", re.MULTILINE)
 MAX_SPLIT_APKS = 64
 MAX_SPLIT_EXPANDED_BYTES = 1024 * 1024 * 1024
+MAX_RELEASE_SEQUENCE = 2_147_483_647
 
 
 def read_json(path, default):
@@ -123,12 +124,46 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def stable_release_id(packages, uninstall_packages):
+def release_payload(packages, uninstall_packages, release_sequence):
+    if (isinstance(release_sequence, bool) or not isinstance(release_sequence, int)
+            or not 1 <= release_sequence <= MAX_RELEASE_SEQUENCE):
+        raise ValueError(f"releaseSequence must be an integer from 1 to {MAX_RELEASE_SEQUENCE}")
+    return {
+        "schemaVersion": 3,
+        "releaseSequence": release_sequence,
+        "packages": packages,
+        "uninstallPackages": uninstall_packages,
+    }
+
+
+def stable_release_id(packages, uninstall_packages, release_sequence):
     payload = json.dumps(
-        {"schemaVersion": 3, "packages": packages, "uninstallPackages": uninstall_packages},
+        release_payload(packages, uninstall_packages, release_sequence),
         sort_keys=True, separators=(",", ":"), ensure_ascii=True,
     ).encode("utf-8")
     return "v3-" + hashlib.sha256(payload).hexdigest()[:20]
+
+
+def next_release_sequence(packages, uninstall_packages, previous_manifest):
+    if not isinstance(previous_manifest, dict):
+        return 1
+    if "releaseSequence" not in previous_manifest:
+        return 1
+    previous_sequence = previous_manifest.get("releaseSequence")
+    if (isinstance(previous_sequence, bool) or not isinstance(previous_sequence, int)
+            or not 1 <= previous_sequence <= MAX_RELEASE_SEQUENCE):
+        raise ValueError("Existing manifest has an invalid releaseSequence")
+    previous_payload = release_payload(
+        previous_manifest.get("packages"),
+        previous_manifest.get("uninstallPackages"),
+        previous_sequence,
+    )
+    candidate_payload = release_payload(packages, uninstall_packages, previous_sequence)
+    if previous_payload == candidate_payload:
+        return previous_sequence
+    if previous_sequence == MAX_RELEASE_SEQUENCE:
+        raise ValueError("releaseSequence has reached its supported maximum")
+    return previous_sequence + 1
 
 
 def build_manifest(aapt2, policies, uninstall_policies):
@@ -178,8 +213,15 @@ def build_manifest(aapt2, policies, uninstall_policies):
     if conflicts:
         raise ValueError("Packages cannot be installed and uninstalled together: " + ", ".join(conflicts))
 
-    manifest = {"schemaVersion": 3, "packages": packages, "uninstallPackages": normalized_uninstall}
-    manifest["releaseId"] = stable_release_id(packages, normalized_uninstall)
+    previous_manifest = read_json(MANIFEST_PATH, None)
+    release_sequence = next_release_sequence(packages, normalized_uninstall, previous_manifest)
+    manifest = {
+        "schemaVersion": 3,
+        "releaseSequence": release_sequence,
+        "packages": packages,
+        "uninstallPackages": normalized_uninstall,
+    }
+    manifest["releaseId"] = stable_release_id(packages, normalized_uninstall, release_sequence)
     return manifest, normalized_policies, normalized_uninstall
 
 
