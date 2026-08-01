@@ -36,7 +36,7 @@ def resolve_bcprov(configured):
         if not candidate.is_file():
             temporary = candidate.with_suffix(".download")
             try:
-                with urllib.request.urlopen(BCPROV_URL, timeout=30) as response, temporary.open(wb) as output:
+                with urllib.request.urlopen(BCPROV_URL, timeout=30) as response, temporary.open("wb") as output:
                     shutil.copyfileobj(response, output)
                 temporary.replace(candidate)
             finally:
