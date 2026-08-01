@@ -1,9 +1,12 @@
 import hashlib
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 MODULE = Path(__file__).resolve().parents[1] / "scripts" / "publish_r2.py"
 spec = importlib.util.spec_from_file_location("publish_r2", MODULE)
@@ -36,15 +39,17 @@ class R2PublisherTest(unittest.TestCase):
             "uninstallPackages": [],
         }
         (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (root / "manifest.sig").write_bytes(b"s" * 64)
         return temporary, root
 
     def test_valid_public_layout_is_accepted(self):
         temporary, root = self.make_layout()
         try:
-            manifest, manifest_path, helper = publish.validate_manifest(root)
+            manifest, manifest_path, helper, signature = publish.validate_manifest(root)
             self.assertEqual(manifest["releaseId"], "v3-test")
             self.assertEqual(manifest_path.name, "manifest.json")
             self.assertEqual(helper.name, "remote-preinstall.jar")
+            self.assertEqual(signature.name, "manifest.sig")
         finally:
             temporary.cleanup()
 
@@ -64,6 +69,56 @@ class R2PublisherTest(unittest.TestCase):
         for key in ("../manifest.json", "/manifest.json", "payload/bad name.apk", "payload//x.apk"):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 publish.safe_key(key)
+
+    def test_missing_signature_is_rejected(self):
+        temporary, root = self.make_layout()
+        try:
+            (root / "manifest.sig").unlink()
+            with self.assertRaises(ValueError):
+                publish.validate_manifest(root)
+        finally:
+            temporary.cleanup()
+
+    def test_invalid_signature_size_is_rejected(self):
+        temporary, root = self.make_layout()
+        try:
+            (root / "manifest.sig").write_bytes(b"not-an-ed25519-signature")
+            with self.assertRaises(ValueError):
+                publish.validate_manifest(root)
+        finally:
+            temporary.cleanup()
+
+    def test_manifest_is_the_final_publish_operation(self):
+        temporary, root = self.make_layout()
+        uploaded_keys = []
+
+        def record_upload(_client, _bucket, key, *_args):
+            uploaded_keys.append(key)
+
+        try:
+            with mock.patch.dict(sys.modules, {"boto3": SimpleNamespace(client=lambda *_args, **_kwargs: object())}):
+                with mock.patch.object(publish, "upload", side_effect=record_upload):
+                    with mock.patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "publish_r2.py",
+                            "--public-dir",
+                            str(root),
+                            "--bucket",
+                            "test-bucket",
+                            "--endpoint",
+                            "https://example.r2.cloudflarestorage.com",
+                        ],
+                    ):
+                        publish.main()
+            self.assertEqual(uploaded_keys[-1], "manifest.json")
+            self.assertIn("remote-preinstall.jar", uploaded_keys)
+            self.assertIn("release-index/v3-test.json", uploaded_keys)
+            self.assertIn("release-index/v3-test.sig", uploaded_keys)
+            self.assertIn("manifest.sig", uploaded_keys)
+        finally:
+            temporary.cleanup()
 
 
 if __name__ == "__main__":

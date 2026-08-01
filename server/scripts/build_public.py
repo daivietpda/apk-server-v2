@@ -20,6 +20,7 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=ROOT / "manifest.json")
+    parser.add_argument("--signature", type=Path, default=ROOT / "manifest.sig")
     parser.add_argument("--artifact-dir", type=Path, default=ROOT / "apk")
     parser.add_argument("--remote-jar", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=ROOT / "public")
@@ -33,7 +34,10 @@ def main():
         shutil.rmtree(output)
     payload = output / "payload"
     payload.mkdir(parents=True)
+    if not args.signature.is_file() or args.signature.stat().st_size != 64:
+        raise SystemExit("manifest.sig must contain exactly one 64-byte Ed25519 signature")
     shutil.copy2(args.manifest, output / "manifest.json")
+    shutil.copy2(args.signature, output / "manifest.sig")
     if not args.remote_jar.is_file():
         raise SystemExit(f"Remote helper jar is missing: {args.remote_jar}")
     shutil.copy2(args.remote_jar, output / "remote-preinstall.jar")

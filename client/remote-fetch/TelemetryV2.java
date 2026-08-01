@@ -6,6 +6,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.HttpsURLConnection;
 
 /** Fixed-endpoint, best-effort telemetry client for APK Server V2 only. */
@@ -15,7 +19,9 @@ public final class TelemetryV2 {
     private static final int CONNECT_TIMEOUT_MS = 8_000;
     private static final int READ_TIMEOUT_MS = 8_000;
     private static final int MAX_RESPONSE_BYTES = 4_096;
-    private static final String RUNTIME_VERSION = "2.2-telemetry1";
+    private static final String RUNTIME_VERSION = "2.3-telemetry2";
+    private static final String AUTH_VERSION = "2";
+    private static final SecureRandom RANDOM = new SecureRandom();
     private static final String[] EVENTS = {
         "heartbeat", "run_started", "manifest_loaded", "manifest_failed",
         "download_started", "download_completed", "download_failed",
@@ -58,6 +64,10 @@ public final class TelemetryV2 {
         String sdk = validateDigits(args[13], "sdk", 3, true);
         String romVersion = validate(args[14], "romVersion", 128, true);
         String token = readToken();
+        String nonce = newNonce();
+        String canonical = canonicalEvent(deviceId, event, eventTime, runId, state, phase, packageName,
+                versionCode, releaseId, selectedEndpoint, message, model, sdk, romVersion, nonce);
+        String signature = sign(canonical, token);
 
         String json = "{" +
                 pair("schemaVersion", "1") + "," +
@@ -75,7 +85,10 @@ public final class TelemetryV2 {
                 pair("model", model) + "," +
                 pair("sdk", sdk) + "," +
                 pair("romVersion", romVersion) + "," +
-                pair("runtimeVersion", RUNTIME_VERSION) + "}";
+                pair("runtimeVersion", RUNTIME_VERSION) + "," +
+                pair("authVersion", AUTH_VERSION) + "," +
+                pair("nonce", nonce) + "," +
+                pair("signature", signature) + "}";
         post(json.getBytes(StandardCharsets.UTF_8), token);
         System.out.println("TelemetryV2: accepted event=" + event);
     }
@@ -110,6 +123,28 @@ public final class TelemetryV2 {
         String token = new String(bytes, StandardCharsets.US_ASCII).trim();
         if (!token.matches("[A-Za-z0-9._~-]{32,128}")) throw new SecurityException("invalid telemetry token");
         return token;
+    }
+
+    private static String newNonce() {
+        byte[] bytes = new byte[24];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String canonicalEvent(String deviceId, String event, String eventTime, String runId,
+            String state, String phase, String packageName, String versionCode, String releaseId,
+            String selectedEndpoint, String message, String model, String sdk, String romVersion, String nonce) {
+        return "apk-server-v2-telemetry\n" + AUTH_VERSION + "\n" + deviceId.toLowerCase() + "\n" + event + "\n"
+                + eventTime + "\n" + runId + "\n" + state + "\n" + phase + "\n" + packageName + "\n"
+                + versionCode + "\n" + releaseId + "\n" + selectedEndpoint + "\n" + message + "\n"
+                + model + "\n" + sdk + "\n" + romVersion + "\n" + RUNTIME_VERSION + "\n" + nonce;
+    }
+
+    private static String sign(String canonical, String token) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static String pair(String key, String value) {

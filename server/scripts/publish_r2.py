@@ -106,7 +106,10 @@ def validate_manifest(public_dir):
     helper = public_dir / "remote-preinstall.jar"
     if not helper.is_file() or helper.stat().st_size == 0:
         raise ValueError("remote-preinstall.jar is missing")
-    return manifest, manifest_path, helper
+    signature = public_dir / "manifest.sig"
+    if not signature.is_file() or signature.stat().st_size != 64:
+        raise ValueError("manifest.sig must contain exactly one 64-byte Ed25519 signature")
+    return manifest, manifest_path, helper, signature
 
 
 def main():
@@ -120,7 +123,7 @@ def main():
 
     import boto3
     public_dir = args.public_dir.resolve()
-    manifest, manifest_path, helper = validate_manifest(public_dir)
+    manifest, manifest_path, helper, signature = validate_manifest(public_dir)
     client = boto3.client("s3", endpoint_url=args.endpoint, region_name="auto")
     release_id = manifest["releaseId"]
 
@@ -143,6 +146,10 @@ def main():
     release_key = safe_key(f"release-index/{release_id}.json")
     upload(client, args.bucket, release_key, manifest_path, {"release-id": release_id},
            "public, max-age=31536000, immutable", True)
+    upload(client, args.bucket, safe_key(f"release-index/{release_id}.sig"), signature, {"release-id": release_id},
+           "public, max-age=31536000, immutable", True)
+    upload(client, args.bucket, "manifest.sig", signature, {"release-id": release_id},
+           "public, max-age=60, must-revalidate", False)
 
     # Mutable manifest is deliberately the final write of a release.
     upload(client, args.bucket, "manifest.json", manifest_path, {"release-id": release_id},
