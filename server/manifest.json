@@ -1,5 +1,6 @@
 {
   "schemaVersion": 3,
+  "releaseSequence": 1,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -131,5 +132,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-41e5966ade3a036a933d"
+  "releaseId": "v3-722a7f51e884086c2b1c"
 }
