@@ -219,9 +219,9 @@ jobs:
       - name: Commit generated policy and manifest
         shell: bash
         run: |
-          cp generated/server/manifest.json server/manifest.json
-          cp generated/server/manifest-policy.json server/manifest-policy.json
-          cp generated/server/uninstall-policy.json server/uninstall-policy.json
+          cp generated/manifest.json server/manifest.json
+          cp generated/manifest-policy.json server/manifest-policy.json
+          cp generated/uninstall-policy.json server/uninstall-policy.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add server/manifest.json server/manifest-policy.json server/uninstall-policy.json
