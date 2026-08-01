@@ -137,7 +137,7 @@ jobs:
           curl --fail --location --retry 3 \
             --output build/r8.jar \
             https://storage.googleapis.com/r8-releases/raw/9.1.31/r8.jar
-          echo 'ded7639e9f1b6d711661ca4ec4fdf5011236e60e87c46611e3e9cf144b65b22f  build/r8.jar' | sha256sum --check --
+          echo 'a71d9a085361aa6912979a0101030a7e47fec91d6ac3a958454e21e4a31d6cce  build/r8.jar' | sha256sum --check --
           python3 client/remote-fetch/build_remote_fetch.py \
             --r8-jar build/r8.jar \
             --output build/remote-preinstall.jar
