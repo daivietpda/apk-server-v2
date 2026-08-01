@@ -39,6 +39,7 @@ class R2PublisherTest(unittest.TestCase):
             "uninstallPackages": [],
         }
         (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (root / "manifest.sig").write_bytes(b"s" * 64)
         return temporary, root
 
     def test_valid_public_layout_is_accepted(self):
@@ -48,7 +49,7 @@ class R2PublisherTest(unittest.TestCase):
             self.assertEqual(manifest["releaseId"], "v3-test")
             self.assertEqual(manifest_path.name, "manifest.json")
             self.assertEqual(helper.name, "remote-preinstall.jar")
-            self.assertIsNone(signature)
+            self.assertEqual(signature.name, "manifest.sig")
         finally:
             temporary.cleanup()
 
@@ -68,6 +69,15 @@ class R2PublisherTest(unittest.TestCase):
         for key in ("../manifest.json", "/manifest.json", "payload/bad name.apk", "payload//x.apk"):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 publish.safe_key(key)
+
+    def test_missing_signature_is_rejected(self):
+        temporary, root = self.make_layout()
+        try:
+            (root / "manifest.sig").unlink()
+            with self.assertRaises(ValueError):
+                publish.validate_manifest(root)
+        finally:
+            temporary.cleanup()
 
     def test_invalid_signature_size_is_rejected(self):
         temporary, root = self.make_layout()
@@ -105,6 +115,8 @@ class R2PublisherTest(unittest.TestCase):
             self.assertEqual(uploaded_keys[-1], "manifest.json")
             self.assertIn("remote-preinstall.jar", uploaded_keys)
             self.assertIn("release-index/v3-test.json", uploaded_keys)
+            self.assertIn("release-index/v3-test.sig", uploaded_keys)
+            self.assertIn("manifest.sig", uploaded_keys)
         finally:
             temporary.cleanup()
 

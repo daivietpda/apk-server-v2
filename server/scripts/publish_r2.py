@@ -107,9 +107,9 @@ def validate_manifest(public_dir):
     if not helper.is_file() or helper.stat().st_size == 0:
         raise ValueError("remote-preinstall.jar is missing")
     signature = public_dir / "manifest.sig"
-    if signature.exists() and signature.stat().st_size != 64:
+    if not signature.is_file() or signature.stat().st_size != 64:
         raise ValueError("manifest.sig must contain exactly one 64-byte Ed25519 signature")
-    return manifest, manifest_path, helper, signature if signature.is_file() else None
+    return manifest, manifest_path, helper, signature
 
 
 def main():
@@ -146,11 +146,10 @@ def main():
     release_key = safe_key(f"release-index/{release_id}.json")
     upload(client, args.bucket, release_key, manifest_path, {"release-id": release_id},
            "public, max-age=31536000, immutable", True)
-    if signature is not None:
-        upload(client, args.bucket, safe_key(f"release-index/{release_id}.sig"), signature, {"release-id": release_id},
-               "public, max-age=31536000, immutable", True)
-        upload(client, args.bucket, "manifest.sig", signature, {"release-id": release_id},
-               "public, max-age=60, must-revalidate", False)
+    upload(client, args.bucket, safe_key(f"release-index/{release_id}.sig"), signature, {"release-id": release_id},
+           "public, max-age=31536000, immutable", True)
+    upload(client, args.bucket, "manifest.sig", signature, {"release-id": release_id},
+           "public, max-age=60, must-revalidate", False)
 
     # Mutable manifest is deliberately the final write of a release.
     upload(client, args.bucket, "manifest.json", manifest_path, {"release-id": release_id},

@@ -6,6 +6,7 @@ on:
     paths:
       - 'server/apk/**'
       - 'server/manifest-policy.json'
+      - 'server/manifest-ed25519.pub'
       - 'server/uninstall-policy.json'
       - 'server/scripts/**'
       - 'server/requirements-publish.txt'
@@ -101,6 +102,7 @@ jobs:
             server/scripts/build_public.py \
             server/scripts/publish_r2.py \
             server/scripts/verify_release.py \
+            server/scripts/sign_manifest.py \
             client/remote-fetch/build_remote_fetch.py
           python3 -m unittest discover -s server/tests -v
 
@@ -129,6 +131,23 @@ jobs:
           fi
 
           python3 server/scripts/update_manifest.py "${args[@]}"
+
+      - name: Sign and verify manifest
+        shell: bash
+        env:
+          MANIFEST_ED25519_PRIVATE_KEY: ${{ secrets.MANIFEST_ED25519_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "${MANIFEST_ED25519_PRIVATE_KEY}" || { echo 'MANIFEST_ED25519_PRIVATE_KEY is missing' >&2; exit 2; }
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          printf '%s' "${MANIFEST_ED25519_PRIVATE_KEY}" > "$key_file"
+          python3 server/scripts/sign_manifest.py \
+            --manifest server/manifest.json \
+            --private-key "$key_file" \
+            --public-key server/manifest-ed25519.pub \
+            --signature server/manifest.sig
 
       - name: Build immutable RemoteFetchV2 DEX jar
         shell: bash
@@ -177,6 +196,8 @@ jobs:
           path: |
             build/remote-preinstall.jar
             server/manifest.json
+            server/manifest.sig
+            server/manifest-ed25519.pub
             server/manifest-policy.json
             server/uninstall-policy.json
           if-no-files-found: error
@@ -271,6 +292,7 @@ jobs:
         run: |
           python3 server/scripts/verify_release.py \
             --public-dir server/public \
+            --public-key server/manifest-ed25519.pub \
             --base-url "$R2_SHADOW_BASE_URL"
 
   verify_dual_origin:
@@ -297,6 +319,7 @@ jobs:
         run: |
           python3 server/scripts/verify_release.py \
             --public-dir server/public \
+            --public-key server/manifest-ed25519.pub \
             --base-url 'https://apk.daivietpda.com/' \
             --base-url "$R2_SHADOW_BASE_URL" \
             --base-url 'https://daivietpda.github.io/apk-server-v2/'

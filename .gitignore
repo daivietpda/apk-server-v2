@@ -15,6 +15,7 @@ release/
 
 # Generated server output
 server/public/
+server/manifest.sig
 server/__pycache__/
 server/scripts/__pycache__/
 
