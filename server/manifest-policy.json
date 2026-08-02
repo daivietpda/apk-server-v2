@@ -43,8 +43,8 @@
     },
     {
       "file": "VTVgoTV.zip",
-      "packageName": "vn.vtv.vtvgotv",
-      "forceInstall": true
+      "packageName": "",
+      "forceInstall": false
     },
     {
       "file": "Xplore.apk",

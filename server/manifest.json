@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 1,
+  "releaseSequence": 2,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -103,7 +103,7 @@
       "packageName": "vn.vtv.vtvgotv",
       "versionCode": 316,
       "format": "splitZip",
-      "forceInstall": true,
+      "forceInstall": false,
       "payload": {
         "path": "payload/vn.vtv.vtvgotv-316-6d0924de740a.zip",
         "sha256": "6d0924de740a6f51ef9a8392087c7ccf060b62a15009b81712f67b26cc05a36e",
@@ -132,5 +132,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-722a7f51e884086c2b1c"
+  "releaseId": "v3-8126bcb3358f87ac2705"
 }
