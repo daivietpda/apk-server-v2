@@ -27,17 +27,12 @@
       "forceInstall": false
     },
     {
-      "file": "Launch-On-Boot.v1.4.6.apk",
+      "file": "Launch-On-Boot.v1.4.7.apk",
       "packageName": "",
       "forceInstall": false
     },
     {
       "file": "smarttube_stable.apk",
-      "packageName": "",
-      "forceInstall": false
-    },
-    {
-      "file": "VieON[31.0.2].zip",
       "packageName": "",
       "forceInstall": false
     },

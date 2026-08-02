@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 2,
+  "releaseSequence": 3,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -63,15 +63,15 @@
       }
     },
     {
-      "name": "Launch-On-Boot.v1.4.6",
+      "name": "Launch-On-Boot.v1.4.7",
       "packageName": "news.androidtv.launchonboot",
-      "versionCode": 146,
+      "versionCode": 147,
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/news.androidtv.launchonboot-146-4787c7a50115.apk",
-        "sha256": "4787c7a501159a5fb2c7de50c18089ed15e90132c86af54c35ddfe43f67e02b0",
-        "size": 8956968
+        "path": "payload/news.androidtv.launchonboot-147-d4186c4ba124.apk",
+        "sha256": "d4186c4ba1244a8ca5d5dfeb7faf0a5709389f95ad6f36b18095f95d76604171",
+        "size": 8956964
       }
     },
     {
@@ -84,18 +84,6 @@
         "path": "payload/org.smarttube.stable-2384-9705f4452c52.apk",
         "sha256": "9705f4452c52fc563b6f31f6164eb4d2007f0f611f46de28184a83e412fd908c",
         "size": 24981437
-      }
-    },
-    {
-      "name": "VieON[31.0.2]",
-      "packageName": "com.vieon.tv",
-      "versionCode": 2012360516,
-      "format": "splitZip",
-      "forceInstall": false,
-      "payload": {
-        "path": "payload/com.vieon.tv-2012360516-6d0631133faa.zip",
-        "sha256": "6d0631133faa8bf6a35c8cb8bb7affb081af8f72291ab66388106601dc2d4e7e",
-        "size": 43827651
       }
     },
     {
@@ -132,5 +120,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-8126bcb3358f87ac2705"
+  "releaseId": "v3-f78dd8c0a160d0817aa5"
 }
