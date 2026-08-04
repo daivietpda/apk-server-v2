@@ -1,18 +1,30 @@
 <resources>
     <string name="app_name">Preinstall Manager</string>
+    <string name="unknown">Unknown</string>
     <string name="title">Preinstalled app updates</string>
     <string name="run_update">Check and update</string>
     <string name="refresh_status">Refresh</string>
-    <string name="copy_log">Copy log</string>
-    <string name="live_log">Live log</string>
+
+    <string name="view_apps">Installed apps</string>
+    <string name="installed_apps_title">Installed applications</string>
+    <string name="installed_apps_loading">Loading installed applications…</string>
+    <string name="installed_apps_summary">Applications found: %1$d</string>
+    <string name="installed_apps_empty">No installed applications found.</string>
+    <string name="installed_apps_error">Cannot read installed applications: %1$s</string>
+    <string name="app_column_name">Application</string>
+    <string name="app_column_package">Package</string>
+    <string name="app_column_version">Version</string>
+    <string name="app_column_type">Type</string>
+    <string name="app_type_system">System</string>
+    <string name="app_type_user">User</string>    <string name="live_log">Live log</string>
     <string name="loading">Reading status…</string>
     <string name="requesting">Sending request…</string>
     <string name="request_sent">Update request sent.</string>
     <string name="request_failed">Cannot start update: %1$s</string>
     <string name="no_status">No service status is available yet.</string>
     <string name="no_log">No display log is available yet.</string>
-    <string name="log_copied">Log copied.</string>
-    <string name="clipboard_label">Preinstall V2 log</string>
+
+
     <string name="storage_unavailable">External storage is unavailable</string>
     <string name="status_summary">State: %1$s\nPhase: %2$s%3$s%4$s\n%5$s</string>
     <string name="package_line">\nPackage: %1$s</string>

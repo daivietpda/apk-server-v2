@@ -1,18 +1,30 @@
 <resources>
-    <string name="app_name">Quản lý cài đặt sẵn</string>
+    <string name="app_name">Qu&#x1EA3;n l&#xFD; c&#xE0;i &#x111;&#x1EB7;t s&#x1EB5;n</string>
+    <string name="unknown">Kh&#xF4;ng x&#xE1;c &#x111;&#x1ECB;nh</string>
     <string name="title">Cập nhật ứng dụng cài đặt sẵn</string>
     <string name="run_update">Kiểm tra và cập nhật</string>
     <string name="refresh_status">Làm mới</string>
-    <string name="copy_log">Sao chép log</string>
-    <string name="live_log">Nhật ký trực tiếp</string>
+
+    <string name="view_apps">Ứng dụng hiện có</string>
+    <string name="installed_apps_title">Danh sách ứng dụng hiện có</string>
+    <string name="installed_apps_loading">Đang tải danh sách ứng dụng…</string>
+    <string name="installed_apps_summary">Tìm thấy %1$d ứng dụng</string>
+    <string name="installed_apps_empty">Không tìm thấy ứng dụng đã cài đặt.</string>
+    <string name="installed_apps_error">Không thể đọc danh sách ứng dụng: %1$s</string>
+    <string name="app_column_name">Ứng dụng</string>
+    <string name="app_column_package">Package</string>
+    <string name="app_column_version">Phiên bản</string>
+    <string name="app_column_type">Loại</string>
+    <string name="app_type_system">Hệ thống</string>
+    <string name="app_type_user">Người dùng</string>    <string name="live_log">Nhật ký trực tiếp</string>
     <string name="loading">Đang đọc trạng thái…</string>
     <string name="requesting">Đang gửi yêu cầu…</string>
     <string name="request_sent">Đã gửi yêu cầu cập nhật.</string>
     <string name="request_failed">Không thể chạy cập nhật: %1$s</string>
     <string name="no_status">Chưa có trạng thái từ dịch vụ.</string>
     <string name="no_log">Chưa có log hiển thị.</string>
-    <string name="log_copied">Đã sao chép log.</string>
-    <string name="clipboard_label">Log cài đặt sẵn V2</string>
+
+
     <string name="storage_unavailable">Bộ nhớ ngoài không khả dụng</string>
     <string name="status_summary">Trạng thái: %1$s\nGiai đoạn: %2$s%3$s%4$s\n%5$s</string>
     <string name="package_line">\nGói ứng dụng: %1$s</string>
