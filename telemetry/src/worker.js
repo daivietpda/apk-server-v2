@@ -10,7 +10,7 @@ const ALLOWED_ENDPOINTS = new Set([
   "https://daivietpda.github.io/apk-server-v2/",
 ]);
 const MAX_BODY_BYTES = 4096;
-const ONLINE_WINDOW_SECONDS = 600;
+const ONLINE_WINDOW_SECONDS = 1200;
 const EVENT_RETENTION_DAYS = 90;
 const STORAGE_CACHE_SECONDS = 120;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;

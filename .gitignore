@@ -21,6 +21,7 @@ server/scripts/__pycache__/
 
 # Private working reference; never commit
 docs/PREINSTALL_FACTORYRESET-V1-REFERENCE.md
+docs/D1_TELEMETRY_USAGE.vi.md
 PREINSTALL_FACTORYRESET-V2.md
 
 # Python bytecode cache
