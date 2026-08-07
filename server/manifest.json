@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 5,
+  "releaseSequence": 6,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -17,13 +17,13 @@
     {
       "name": "cobalt",
       "packageName": "com.google.android.youtube.tv",
-      "versionCode": 103,
+      "versionCode": 104,
       "format": "apk",
       "forceInstall": false,
       "payload": {
-        "path": "payload/com.google.android.youtube.tv-103-cadfa2a1ce45.apk",
-        "sha256": "cadfa2a1ce454f1957d9e5bbc72c7ad41e8f3773a0b5546633d8f5dd121f9acf",
-        "size": 15338404
+        "path": "payload/com.google.android.youtube.tv-104-78d77853cf78.apk",
+        "sha256": "78d77853cf7801636f94e9545af9efe422b01fea6727fc40cbb952af78f1fbd7",
+        "size": 15337998
       }
     },
     {
@@ -120,5 +120,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-5328f1020e24032a7fac"
+  "releaseId": "v3-24969cdc203ac7b8592e"
 }
