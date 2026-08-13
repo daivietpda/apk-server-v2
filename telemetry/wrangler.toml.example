@@ -4,6 +4,8 @@ compatibility_date = "2026-07-30"
 workers_dev = false
 
 [vars]
+# Presence-only stores one current row per device and does not write event history.
+TELEMETRY_MODE = "presence_only"
 # Keep old ROMs working until telemetry shows their rollout is complete.
 LEGACY_AUTH_MODE = "allow"
 

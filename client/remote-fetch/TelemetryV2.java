@@ -42,13 +42,14 @@ public final class TelemetryV2 {
     }
 
     private static void run(String[] args) throws Exception {
+        if (args.length > 0 && "--presence".equals(args[0])) {
+            runPresence(args);
+            return;
+        }
         if (args.length != 15 || !"--post".equals(args[0])) {
             throw new IllegalArgumentException("usage: TelemetryV2 --post DEVICE_ID EVENT EVENT_TIME RUN_ID STATE PHASE PACKAGE VERSION RELEASE ENDPOINT MESSAGE MODEL SDK ROM");
         }
-        String deviceId = validate(args[1], "deviceId", 36, false);
-        if (!deviceId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
-            throw new SecurityException("invalid deviceId");
-        }
+        String deviceId = validateDeviceId(args[1]);
         String event = validate(args[2], "event", 32, false);
         if (!isAllowedEvent(event)) throw new SecurityException("invalid event");
         String eventTime = validateDigits(args[3], "eventTime", 13, false);
@@ -64,11 +65,49 @@ public final class TelemetryV2 {
         String sdk = validateDigits(args[13], "sdk", 3, true);
         String romVersion = validate(args[14], "romVersion", 128, true);
         String token = readToken();
+        postEvent(deviceId, event, eventTime, runId, state, phase, packageName, versionCode,
+                releaseId, selectedEndpoint, message, model, sdk, romVersion, RUNTIME_VERSION, token);
+        System.out.println("TelemetryV2: accepted event=" + event);
+    }
+
+    private static void runPresence(String[] args) throws Exception {
+        if (args.length != 13) {
+            throw new IllegalArgumentException("usage: TelemetryV2 --presence DEVICE_ID EVENT_TIME STATE PHASE PACKAGE VERSION RELEASE ENDPOINT MESSAGE MODEL SDK ROM");
+        }
+        String deviceId = validateDeviceId(args[1]);
+        String eventTime = validateDigits(args[2], "eventTime", 13, false);
+        String state = validate(args[3], "state", 24, true);
+        String phase = validate(args[4], "phase", 32, true);
+        String packageName = validate(args[5], "packageName", 160, true);
+        String versionCode = validateDigits(args[6], "versionCode", 20, true);
+        String releaseId = validate(args[7], "releaseId", 96, true);
+        String selectedEndpoint = validate(args[8], "endpoint", 160, true);
+        String message = validate(args[9], "message", 240, true);
+        String model = validate(args[10], "model", 96, true);
+        String sdk = validateDigits(args[11], "sdk", 3, true);
+        String romVersion = validate(args[12], "romVersion", 128, true);
+        String token = readToken();
+        postEvent(deviceId, "heartbeat", eventTime, "", state, phase, packageName, versionCode,
+                releaseId, selectedEndpoint, message, model, sdk, romVersion, "2.4-presence", token);
+        System.out.println("TelemetryV2: accepted presence heartbeat");
+    }
+
+    private static String validateDeviceId(String value) {
+        String deviceId = validate(value, "deviceId", 36, false);
+        if (!deviceId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+            throw new SecurityException("invalid deviceId");
+        }
+        return deviceId;
+    }
+
+    private static void postEvent(String deviceId, String event, String eventTime, String runId,
+            String state, String phase, String packageName, String versionCode, String releaseId,
+            String selectedEndpoint, String message, String model, String sdk, String romVersion,
+            String runtimeVersion, String token) throws Exception {
         String nonce = newNonce();
         String canonical = canonicalEvent(deviceId, event, eventTime, runId, state, phase, packageName,
-                versionCode, releaseId, selectedEndpoint, message, model, sdk, romVersion, nonce);
+                versionCode, releaseId, selectedEndpoint, message, model, sdk, romVersion, runtimeVersion, nonce);
         String signature = sign(canonical, token);
-
         String json = "{" +
                 pair("schemaVersion", "1") + "," +
                 pair("deviceId", deviceId) + "," +
@@ -85,14 +124,12 @@ public final class TelemetryV2 {
                 pair("model", model) + "," +
                 pair("sdk", sdk) + "," +
                 pair("romVersion", romVersion) + "," +
-                pair("runtimeVersion", RUNTIME_VERSION) + "," +
+                pair("runtimeVersion", runtimeVersion) + "," +
                 pair("authVersion", AUTH_VERSION) + "," +
                 pair("nonce", nonce) + "," +
                 pair("signature", signature) + "}";
         post(json.getBytes(StandardCharsets.UTF_8), token);
-        System.out.println("TelemetryV2: accepted event=" + event);
     }
-
     private static boolean isAllowedEvent(String event) {
         for (String allowed : EVENTS) if (allowed.equals(event)) return true;
         return false;
@@ -133,11 +170,11 @@ public final class TelemetryV2 {
 
     private static String canonicalEvent(String deviceId, String event, String eventTime, String runId,
             String state, String phase, String packageName, String versionCode, String releaseId,
-            String selectedEndpoint, String message, String model, String sdk, String romVersion, String nonce) {
+            String selectedEndpoint, String message, String model, String sdk, String romVersion, String runtimeVersion, String nonce) {
         return "apk-server-v2-telemetry\n" + AUTH_VERSION + "\n" + deviceId.toLowerCase() + "\n" + event + "\n"
                 + eventTime + "\n" + runId + "\n" + state + "\n" + phase + "\n" + packageName + "\n"
                 + versionCode + "\n" + releaseId + "\n" + selectedEndpoint + "\n" + message + "\n"
-                + model + "\n" + sdk + "\n" + romVersion + "\n" + RUNTIME_VERSION + "\n" + nonce;
+                + model + "\n" + sdk + "\n" + romVersion + "\n" + runtimeVersion + "\n" + nonce;
     }
 
     private static String sign(String canonical, String token) throws Exception {
