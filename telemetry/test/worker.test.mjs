@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import worker, {
-  canonicalEvent, legacyAuthMode, nonceExpirySeconds, RateLimiter, readBodyLimited, safeEqual, stats,
+  canonicalEvent, legacyAuthMode, nonceExpirySeconds, RateLimiter, readBodyLimited, safeEqual, stats, takeDistributedNonce, telemetryMode,
   takeDistributedRateLimit, validatePayload,
 } from "../src/worker.js";
 
@@ -43,40 +43,53 @@ function signedPayload(overrides = {}) {
 
 function ingestDatabase() {
   const nonces = new Map();
-  return {
-    RATE_LIMITER: rateLimiterBinding(),
-    DB: {
-      prepare(sql) {
-        let values = [];
-        const statement = {
-          bind(...next) { values = next; return statement; },
-          async run() {
-            if (sql.includes("INSERT INTO telemetry_nonces")) {
-              if (nonces.has(values[0])) throw new Error("UNIQUE constraint failed");
-              nonces.set(values[0], values[1]);
+  const writes = [];
+  const batches = [];
+  const DB = {
+    prepare(sql) {
+      let values = [];
+      const statement = {
+        sql,
+        bind(...next) { values = next; return statement; },
+        async run() {
+          writes.push(sql);
+          if (sql.includes("INSERT INTO telemetry_nonces")) {
+            if (nonces.has(values[0])) throw new Error("UNIQUE constraint failed");
+            nonces.set(values[0], values[1]);
+          }
+          if (sql.includes("DELETE FROM telemetry_nonces")) {
+            for (const [nonce, expiresAt] of nonces) {
+              if (expiresAt < values[0]) nonces.delete(nonce);
             }
-            if (sql.includes("DELETE FROM telemetry_nonces")) {
-              for (const [nonce, expiresAt] of nonces) {
-                if (expiresAt < values[0]) nonces.delete(nonce);
-              }
-            }
-            return { success: true };
-          },
-        };
-        return statement;
-      },
-      async batch() { return []; },
+          }
+          return { success: true };
+        },
+      };
+      return statement;
+    },
+    async batch(statements) {
+      batches.push(statements.map((statement) => statement.sql));
+      return [];
     },
   };
+  return { RATE_LIMITER: rateLimiterBinding(), DB, writes, batches };
 }
-
 function rateLimiterBinding(sharedWindows = new Map()) {
+  const nonceBuckets = new Map();
   return {
     idFromName(name) { return name; },
     get(objectId) {
       return {
         async fetch(_request, init) {
-          const { limit, nowMs } = JSON.parse(init.body);
+          const input = JSON.parse(init.body);
+          if (input.type === "nonce") {
+            const values = nonceBuckets.get(objectId) || new Set();
+            if (values.has(input.nonce)) return Response.json({ ok: true, allowed: false });
+            values.add(input.nonce);
+            nonceBuckets.set(objectId, values);
+            return Response.json({ ok: true, allowed: true });
+          }
+          const { limit, nowMs } = input;
           const previous = sharedWindows.get(objectId);
           const current = previous && nowMs >= previous.windowStart && nowMs - previous.windowStart < 60_000
             ? previous
@@ -154,7 +167,7 @@ test("stats groups total devices by normalized model and SDK", async () => {
   assert.equal(result.totalDevices, 5);
   assert.deepEqual(result.deviceGroups, groupRows);
   assert.equal(result.deviceGroups.reduce((sum, item) => sum + item.deviceCount, 0), result.totalDevices);
-  assert.deepEqual(result.authVersions, [{ authVersion: '2', events: 4 }, { authVersion: 'legacy', events: 1 }]);
+  assert.deepEqual(result.authVersions, []);
 });
 
 test("hardware-style and unexpected fields cannot bypass validation", () => {
@@ -228,6 +241,35 @@ test("signed telemetry is accepted and a replayed nonce is rejected", async () =
   assert.deepEqual(await replay.json(), { ok: false, error: "replayed request" });
 });
 
+
+test("presence-only accepts signed telemetry without event or nonce D1 writes", async () => {
+  const database = ingestDatabase();
+  const env = { INGEST_TOKEN: ingestToken, TELEMETRY_MODE: "presence_only", ...database };
+  const payload = signedPayload({
+    event: "heartbeat",
+    state: "online",
+    phase: "presence",
+    packageName: "",
+    versionCode: "",
+    releaseId: "",
+    message: "Heartbeat",
+    nonce: "nonce_for_presence_only_123",
+  });
+  const response = await worker.fetch(signedRequest(payload), env);
+  assert.equal(response.status, 202);
+  assert.equal(database.writes.some((sql) => sql.includes("telemetry_nonces")), false);
+  assert.deepEqual(database.batches[0], [database.batches[0][0]]);
+  const replay = await worker.fetch(signedRequest(payload), env);
+  assert.equal(replay.status, 409);
+  assert.deepEqual(await replay.json(), { ok: false, error: "replayed request" });
+  assert.match(database.batches[0][0], /INSERT INTO devices/);
+});
+
+test("telemetry mode defaults to full for an omitted deployment variable", () => {
+  assert.equal(telemetryMode({}), "full");
+  assert.equal(telemetryMode({ TELEMETRY_MODE: "presence_only" }), "presence_only");
+  assert.throws(() => telemetryMode({ TELEMETRY_MODE: "invalid" }), /invalid TELEMETRY_MODE/);
+});
 test("future-dated signed nonce survives cleanup until its timestamp window closes", async () => {
   const originalDateNow = Date.now;
   const startedAt = 1_790_000_000;
@@ -299,6 +341,16 @@ test("Durable Object rate limit is atomic and resets only after its window", asy
   assert.deepEqual(await (await limiter.fetch(request(1_000))).json(), { ok: true, allowed: true });
   assert.deepEqual(await (await limiter.fetch(request(1_001))).json(), { ok: true, allowed: false });
   assert.deepEqual(await (await limiter.fetch(request(61_000))).json(), { ok: true, allowed: true });
+});
+
+test("Durable Object nonce guard rejects a replay in the same bucket", async () => {
+  const limiter = new RateLimiter(durableObjectState());
+  const request = (nonce) => new Request("https://rate-limit/nonce", {
+    method: "POST",
+    body: JSON.stringify({ type: "nonce", nonce, nowMs: 1_000 }),
+  });
+  assert.deepEqual(await (await limiter.fetch(request("nonce_for_do_test_12345"))).json(), { ok: true, allowed: true });
+  assert.deepEqual(await (await limiter.fetch(request("nonce_for_do_test_12345"))).json(), { ok: true, allowed: false });
 });
 
 test("distributed rate limit spans simulated Worker isolates without exposing raw identity", async () => {
