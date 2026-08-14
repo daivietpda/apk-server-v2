@@ -298,13 +298,16 @@ async function ingest(request, env, context) {
   } catch (error) {
     return json({ ok: false, error: error.message }, 400);
   }
-  // Enrollment is intentionally idempotent. Retries and replays execute this
-  // statement but do not modify any D1 row for an existing device or MAC.
+  // Enrollment is intentionally idempotent. Retries and replays are no-ops;
+  // the only allowed update is a one-time MAC backfill for a legacy row that
+  // was enrolled before the ROM could read the hardware address.
   const insert = env.DB.prepare(`
     INSERT INTO devices (
       device_id, first_seen, release_id, model, sdk, rom_version, runtime_version, mac_address
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT DO NOTHING
+    ON CONFLICT(device_id) DO UPDATE SET
+      mac_address = excluded.mac_address
+    WHERE devices.mac_address = '' AND excluded.mac_address <> ''
   `).bind(item.deviceId, now, item.releaseId, item.model, item.sdk, item.romVersion,
     item.runtimeVersion, item.macAddress);
   await insert.run();

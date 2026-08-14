@@ -254,15 +254,16 @@ test("ingest rejects missing secret before touching D1", async () => {
   assert.equal(response.status, 401);
 });
 
-test("signed telemetry replays are harmless insert-only requests", async () => {
+test("signed telemetry replays are harmless and only backfill a missing MAC", async () => {
   const env = { INGEST_TOKEN: ingestToken, ...ingestDatabase() };
   const payload = signedPayload();
   const first = await worker.fetch(signedRequest(payload), env);
   assert.equal(first.status, 202);
   const replay = await worker.fetch(signedRequest(payload), env);
   assert.equal(replay.status, 202);
-  assert.equal(env.writes.some((sql) => /UPDATE|INSERT INTO events|telemetry_nonces/.test(sql)), false);
-  assert.ok(env.writes.every((sql) => sql.includes("ON CONFLICT DO NOTHING")));
+  assert.equal(env.writes.some((sql) => /INSERT INTO events|telemetry_nonces/.test(sql)), false);
+  assert.ok(env.writes.every((sql) => sql.includes("ON CONFLICT(device_id) DO UPDATE")));
+  assert.ok(env.writes.every((sql) => sql.includes("WHERE devices.mac_address = ''")));
 });
 
 
@@ -275,7 +276,8 @@ test("initial preinstall enrollment stores MAC with no event or nonce D1 writes"
   assert.equal(database.writes.some((sql) => sql.includes("telemetry_nonces")), false);
   assert.equal(database.writes.some((sql) => sql.includes("INSERT INTO events")), false);
   assert.match(database.writes[0], /mac_address/);
-  assert.match(database.writes[0], /ON CONFLICT DO NOTHING/);
+  assert.match(database.writes[0], /ON CONFLICT\(device_id\) DO UPDATE/);
+  assert.match(database.writes[0], /WHERE devices\.mac_address = '' AND excluded\.mac_address <> ''/);
   const replay = await worker.fetch(signedRequest(payload), env);
   assert.equal(replay.status, 202);
 });

@@ -34,7 +34,7 @@ TelemetryV2 --enroll DEVICE_ID MAC EVENT_TIME RELEASE MODEL SDK ROM
 
 6. Khi marker tồn tại, listener không tạo hoặc gửi thêm telemetry. Không có timer heartbeat.
 
-Device ID được tạo ổn định từ MAC theo mẫu `00000000-0000-4000-8000-xxxxxxxxxxxx`. Ưu tiên `eth0`, sau đó `wlan0`. Nếu không đọc được MAC hợp lệ, listener dùng UUID lưu cục bộ; trường hợp fallback này có thể tạo một dòng mới sau khi `/data` bị xóa.
+Device ID mới được tạo ổn định từ MAC theo mẫu `00000000-0000-4000-8000-xxxxxxxxxxxx`. Listener ưu tiên MAC trong `dumpsys wifi`, sau đó `wlan0`, `eth0` và MAC đã cache. Nếu không đọc được MAC hợp lệ, listener dùng UUID lưu cục bộ; UUID cũ được giữ nguyên để backfill MAC vào đúng dòng D1.
 
 ## 3. Luồng trên Worker và D1
 
@@ -45,7 +45,8 @@ Worker chỉ chạy một câu lệnh:
 ```sql
 INSERT INTO devices (..., mac_address)
 VALUES (...)
-ON CONFLICT DO NOTHING;
+ON CONFLICT(device_id) DO UPDATE SET mac_address = excluded.mac_address
+WHERE devices.mac_address = '' AND excluded.mac_address <> '';
 ```
 
 Các ràng buộc chống trùng gồm:
@@ -53,9 +54,9 @@ Các ràng buộc chống trùng gồm:
 - khóa chính `device_id`;
 - unique index có điều kiện trên `mac_address` khi MAC không rỗng.
 
-Vì vậy retry, replay, reboot hoặc factory reset không cập nhật dòng đã có. Worker chỉ nhận `schemaVersion=2` với `preinstall_registered`; heartbeat và mọi event chi tiết của ROM cũ bị từ chối trước khi chạm D1.
+Vì vậy retry, replay, reboot hoặc factory reset không thay đổi dòng đã có, ngoại trừ việc bổ sung một lần MAC vào dòng legacy đang trống. Worker chỉ nhận `schemaVersion=2` với `preinstall_registered`; heartbeat và mọi event chi tiết của ROM cũ bị từ chối trước khi chạm D1.
 
-Không còn `TELEMETRY_MODE` hoặc `LEGACY_AUTH_MODE`: enrollment có HMAC, insert-only là hành vi mặc định và duy nhất.
+Không còn `TELEMETRY_MODE` hoặc `LEGACY_AUTH_MODE`: enrollment có HMAC là luồng duy nhất; ngoài backfill MAC một lần cho dòng legacy, dữ liệu đã ghi không bị cập nhật.
 
 ## 4. Dashboard và thống kê
 
@@ -101,12 +102,12 @@ Sau đó build lại `remote-preinstall.jar`, đưa JAR, `factoryreset.conf` và
 3. Kiểm tra dashboard xuất hiện đúng một thiết bị với MAC mong đợi.
 4. Reboot và xác nhận không có request enrollment mới từ listener.
 5. Chạy preinstall thủ công và xác nhận marker ngăn gửi lại.
-6. Nếu factory reset, ROM có thể gửi lại một request vì marker trong `/data` bị xóa, nhưng `ON CONFLICT DO NOTHING` phải giữ nguyên `first_seen` và không tạo dòng mới.
-7. Trong D1 Metrics, Rows written chỉ tăng khi có MAC/Device ID chưa từng được ghi nhận hoặc khi chạy migration/deploy có thao tác schema.
+6. Nếu factory reset, ROM có thể gửi lại một request vì marker trong `/data` bị xóa, nhưng upsert theo `device_id` phải giữ nguyên `first_seen` và không tạo dòng mới.
+7. Trong D1 Metrics, Rows written chỉ tăng khi có MAC/Device ID chưa từng được ghi nhận, khi backfill MAC legacy hoặc khi chạy migration/deploy có thao tác schema.
 
 ## 7. Giới hạn nhận dạng bằng MAC
 
-- Một số thiết bị có thể không cho user `shell` đọc MAC; lúc đó hệ thống fallback sang UUID.
+- Listener ưu tiên MAC thật trong `dumpsys wifi` (trường `MAC:`), sau đó mới thử `/sys/class/net/wlan0|eth0/address`; nếu cả hai bị SELinux chặn thì fallback sang UUID. MAC được lưu cục bộ để retry backfill một lần cho enrollment cũ.
 - Nếu nhà sản xuất cấp trùng MAC cho nhiều box, unique index sẽ coi chúng là một thiết bị. Cần sửa dữ liệu nguồn của ROM/nhà máy thay vì bỏ chống trùng.
 - Nếu phần cứng thay MAC hoặc chuyển ưu tiên từ `eth0` sang `wlan0`, thiết bị có thể có nhận dạng mới. Danh sách interface phải được cố định theo dòng sản phẩm.
 - MAC được gửi qua HTTPS nhưng vẫn là định danh bền vững; chỉ cấp quyền dashboard cho người vận hành cần thiết.
