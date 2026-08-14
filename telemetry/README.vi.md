@@ -12,7 +12,7 @@ Telemetry này chỉ dành cho APK Server V2. V1 không bị thay đổi và kh�
 
 Dashboard: `https://apk.daivietpda.com/telemetry`
 
-Dashboard có bảng **Tổng thiết bị theo Model / SDK**. Mỗi dòng hiển thị Model, Android SDK, tổng số thiết bị đã ghi nhận và số thiết bị online trong 10 phút gần nhất. Model hoặc SDK trống được gom vào nhóm `Không xác định`. API Basic Auth `/api/v2/stats` trả dữ liệu này trong mảng `deviceGroups` với các trường `model`, `sdk`, `deviceCount`, `onlineDevices`.
+Dashboard có bảng **Tổng thiết bị theo Model / SDK** và danh sách thiết bị đã hoàn tất preinstall lần đầu. Không còn thống kê online. Model hoặc SDK trống được gom vào nhóm `Không xác định`.
 
 Health check công khai: `https://apk.daivietpda.com/api/v2/health`
 
@@ -20,15 +20,15 @@ Storage health có Basic Authentication: `https://apk.daivietpda.com/api/v2/stor
 
 ## Dữ liệu được lưu
 
-Mỗi lần cài V2 tạo một UUID ngẫu nhiên trong `/data/local/tmp/.preinstall_v2_device_id`. UUID mất khi factory reset/data bị xóa. Không gửi serial, MAC, IMEI, Android ID hoặc địa chỉ IP vào D1.
+Listener ưu tiên đọc MAC của `eth0`, sau đó `wlan0`, và tạo Device ID ổn định từ MAC. MAC, Device ID, thời điểm ghi nhận đầu tiên, model, SDK, ROM và release đầu tiên được lưu trong D1. Nếu không đọc được MAC, listener dùng UUID lưu tại `/data/local/tmp/.preinstall_v2_device_id`.
 
-Các event: heartbeat, bắt đầu/kết thúc run, manifest, download, install và uninstall. Worker giữ event chi tiết 90 ngày và dọn nền theo xác suất thấp khi nhận event; bảng thiết bị giữ `first_seen`, `last_seen` và trạng thái cuối.
+ROM mới chỉ gửi event `preinstall_registered` sau khi lượt preinstall đầu tiên hoàn tất thành công. Worker dùng `INSERT ... ON CONFLICT DO NOTHING`; không cập nhật `last_seen`, không ghi bảng `events` và không ghi `telemetry_nonces`. MAC là dữ liệu nhận dạng bền vững, vì vậy dashboard và API stats phải luôn được bảo vệ bằng `DASHBOARD_TOKEN`.
 
 ## Xác thực và migration telemetry
 
-Client mới (runtime `2.3-telemetry2`) gửi `authVersion: "2"`, nonce ngẫu nhiên và chữ ký HMAC-SHA256 của toàn bộ payload chuẩn hóa. Worker chỉ chấp nhận timestamp trong ±10 phút, lưu nonce vào D1 trong 15 phút và từ chối nonce lặp lại. Chữ ký dùng `INGEST_TOKEN`; `deviceId` chỉ là nhãn thống kê do client tự khai báo, không phải bằng chứng danh tính.
+Client mới (runtime `2.5-enrollment`) gửi `schemaVersion: "2"`, `authVersion: "2"`, nonce ngẫu nhiên và chữ ký HMAC-SHA256 bao gồm cả MAC. Worker chỉ chấp nhận timestamp trong ±10 phút. Replay không cần ghi nonce vì câu lệnh enrollment là idempotent và không thay đổi dòng đã tồn tại. Chữ ký dùng `INGEST_TOKEN`; Device ID/MAC vẫn là dữ liệu client tự khai báo, không phải bằng chứng danh tính.
 
-Để không làm gián đoạn ROM cũ, payload không có ba trường `authVersion`/`nonce`/`signature` vẫn được tiếp nhận trong giai đoạn migration. Payload legacy không có bảo vệ replay và không được xem là xác thực theo thiết bị. Khi tỷ lệ ROM mới đủ lớn, việc tắt legacy phải là một thay đổi triển khai riêng có thông báo trước.
+Worker từ chối payload schema cũ, heartbeat, event chi tiết và payload thiếu `authVersion`/`nonce`/`signature` trước khi chạm D1. Vì vậy phải deploy Worker, JAR và hai script ROM mới trong cùng đợt chuyển đổi.
 
 Worker có rate limit best-effort theo IP Cloudflare, token chung và deviceId claim. Rate limit giúp hạn chế lưu lượng; vì token đang được provision chung trong ROM, nó không thay thế credential riêng từng thiết bị và telemetry không được dùng cho quyết định bảo mật hoặc thanh toán.
 
@@ -97,15 +97,14 @@ Kết quả được cache 120 giây trong isolate để tránh HEAD toàn bộ 
 
 ## Hành vi Android
 
-`factoryreset.conf` chỉ ghi file event atomic vào `/data/local/tmp/preinstall-v2-telemetry/`, tối đa 200 event. Nó không mở kết nối mạng và không đổi exit code cài đặt.
+`factoryreset.conf` chỉ tạo `enrollment.event` sau `run_completed` thành công. Nó không mở kết nối mạng và không đổi exit code cài đặt. Các event chi tiết chỉ được ghi vào log cục bộ.
 
 `preinstall-listener.conf`:
 
-- gửi tối đa 5 event mỗi vòng;
-- heartbeat mỗi 5 phút;
-- coi thiết bị online khi heartbeat trong 10 phút;
+- chỉ gửi enrollment khi chưa có marker `/data/local/tmp/.preinstall_v2_telemetry_registered`;
+- không gửi heartbeat và không thống kê online;
 - retry từ 30 giây đến tối đa 15 phút;
-- chỉ xóa file event sau HTTP 200/202;
+- chỉ xóa enrollment và tạo marker sau HTTP 200/202;
 - tiếp tục cài APK bình thường nếu token/API/Internet không hoạt động.
 
 ## Kiểm thử

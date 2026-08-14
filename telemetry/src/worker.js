@@ -1,24 +1,12 @@
-const ALLOWED_EVENTS = new Set([
-  "heartbeat", "run_started", "manifest_loaded", "manifest_failed",
-  "download_started", "download_completed", "download_failed",
-  "install_started", "install_completed", "install_failed",
-  "uninstall_started", "uninstall_completed", "uninstall_failed",
-  "run_completed", "run_failed",
-]);
 const ALLOWED_ENDPOINTS = new Set([
   "", "failover-auto", "https://apk.daivietpda.com/",
   "https://daivietpda.github.io/apk-server-v2/",
 ]);
 const MAX_BODY_BYTES = 4096;
-const ONLINE_WINDOW_SECONDS = 1200;
-const EVENT_RETENTION_DAYS = 90;
 const STORAGE_CACHE_SECONDS = 120;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 const AUTH_VERSION = "2";
 const MAX_EVENT_SKEW_SECONDS = 600;
-const NONCE_TTL_SECONDS = 900;
-const NONCE_EXPIRY_MARGIN_SECONDS = 60;
-const LEGACY_AUTH_MODES = new Set(["allow", "observe", "reject"]);
 const RATE_WINDOW_MS = 60_000;
 const IP_RATE_LIMIT = 60;
 const DEVICE_RATE_LIMIT = 30;
@@ -60,26 +48,29 @@ function cleanDigits(value, name, maxLength, emptyAllowed = true) {
 
 export function validatePayload(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid JSON object");
-  if (input.schemaVersion !== "1") throw new Error("unsupported schemaVersion");
+  if (input.schemaVersion !== "2") throw new Error("unsupported schemaVersion");
   const deviceId = cleanString(input.deviceId, "deviceId", 36, false).toLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(deviceId)) {
     throw new Error("invalid deviceId");
   }
   const event = cleanString(input.event, "event", 32, false);
-  if (!ALLOWED_EVENTS.has(event)) throw new Error("invalid event");
+  if (event !== "preinstall_registered") throw new Error("invalid event");
+  const macAddress = cleanString(input.macAddress === undefined ? "" : input.macAddress, "macAddress", 17);
+  if (macAddress !== "" && !/^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$/.test(macAddress)) {
+    throw new Error("invalid macAddress");
+  }
   const endpoint = cleanString(input.endpoint, "endpoint", 160);
   if (!ALLOWED_ENDPOINTS.has(endpoint)) throw new Error("invalid endpoint");
   const suppliedAuthFields = [input.authVersion, input.nonce, input.signature]
     .filter((value) => value !== undefined).length;
-  if (suppliedAuthFields !== 0 && suppliedAuthFields !== 3) throw new Error("incomplete authentication fields");
-  const authenticated = suppliedAuthFields === 3;
-  if (authenticated) {
-    if (input.authVersion !== AUTH_VERSION) throw new Error("unsupported authentication version");
-    if (typeof input.nonce !== "string" || !/^[A-Za-z0-9_-]{22,64}$/.test(input.nonce)) throw new Error("invalid nonce");
-    if (typeof input.signature !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.signature)) throw new Error("invalid signature");
-  }
+  if (suppliedAuthFields !== 3) throw new Error("authentication fields are required");
+  if (input.authVersion !== AUTH_VERSION) throw new Error("unsupported authentication version");
+  if (typeof input.nonce !== "string" || !/^[A-Za-z0-9_-]{22,64}$/.test(input.nonce)) throw new Error("invalid nonce");
+  if (typeof input.signature !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.signature)) throw new Error("invalid signature");
   return {
+    schemaVersion: input.schemaVersion,
     deviceId,
+    macAddress: macAddress.toLowerCase(),
     event,
     eventTime: cleanDigits(input.eventTime, "eventTime", 13, false),
     runId: cleanString(input.runId, "runId", 64),
@@ -94,18 +85,20 @@ export function validatePayload(input) {
     sdk: cleanDigits(input.sdk, "sdk", 3),
     romVersion: cleanString(input.romVersion, "romVersion", 128),
     runtimeVersion: cleanString(input.runtimeVersion, "runtimeVersion", 40, false),
-    authVersion: authenticated ? AUTH_VERSION : "",
-    nonce: authenticated ? input.nonce : "",
-    signature: authenticated ? input.signature : "",
+    authVersion: AUTH_VERSION,
+    nonce: input.nonce,
+    signature: input.signature,
   };
 }
 
 export function canonicalEvent(item) {
-  return [
+  const fields = [
     "apk-server-v2-telemetry", AUTH_VERSION, item.deviceId, item.event, item.eventTime, item.runId,
     item.state, item.phase, item.packageName, item.versionCode, item.releaseId, item.endpoint,
     item.message, item.model, item.sdk, item.romVersion, item.runtimeVersion, item.nonce,
-  ].join("\n");
+  ];
+  if (item.schemaVersion === "2") fields.splice(3, 0, item.macAddress);
+  return fields.join("\n");
 }
 
 function base64UrlBytes(value) {
@@ -116,7 +109,6 @@ function base64UrlBytes(value) {
 }
 
 export async function verifyRequestAuthentication(item, token, nowSeconds) {
-  if (!item.authVersion) return { authenticated: false };
   const eventTime = Number(item.eventTime);
   if (!Number.isSafeInteger(eventTime) || Math.abs(nowSeconds - eventTime) > MAX_EVENT_SKEW_SECONDS) {
     throw new Error("event timestamp is outside the allowed window");
@@ -129,30 +121,6 @@ export async function verifyRequestAuthentication(item, token, nowSeconds) {
   );
   if (!verified) throw new Error("invalid request signature");
   return { authenticated: true };
-}
-
-export function nonceExpirySeconds(eventTime, nowSeconds) {
-  if (!Number.isSafeInteger(eventTime) || !Number.isSafeInteger(nowSeconds)) {
-    throw new Error("invalid nonce expiry timestamp");
-  }
-  return Math.max(
-    nowSeconds + NONCE_TTL_SECONDS,
-    Math.max(nowSeconds, eventTime) + MAX_EVENT_SKEW_SECONDS + NONCE_EXPIRY_MARGIN_SECONDS,
-  );
-}
-
-export function legacyAuthMode(env) {
-  const mode = env.LEGACY_AUTH_MODE || "allow";
-  if (!LEGACY_AUTH_MODES.has(mode)) throw new Error("invalid LEGACY_AUTH_MODE");
-  return mode;
-}
-
-const TELEMETRY_MODES = new Set(["full", "presence_only"]);
-
-export function telemetryMode(env) {
-  const mode = env.TELEMETRY_MODE || "full";
-  if (!TELEMETRY_MODES.has(mode)) throw new Error("invalid TELEMETRY_MODE");
-  return mode;
 }
 
 function clientAddress(request) {
@@ -187,21 +155,6 @@ export async function takeDistributedRateLimit(env, scope, identity, limit, nowM
   return result.allowed;
 }
 
-export async function takeDistributedNonce(env, identity, nonce, nowMs = Date.now()) {
-  if (!env.RATE_LIMITER || typeof env.RATE_LIMITER.idFromName !== "function") {
-    throw new Error("rate limiter binding is unavailable");
-  }
-  const objectId = env.RATE_LIMITER.idFromName(await rateLimitObjectName("nonce", identity));
-  const response = await env.RATE_LIMITER.get(objectId).fetch("https://rate-limit/nonce", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "nonce", nonce, nowMs }),
-  });
-  if (!response.ok) throw new Error("rate limiter request failed");
-  const result = await response.json();
-  if (!result || typeof result.allowed !== "boolean") throw new Error("rate limiter response is invalid");
-  return result.allowed;
-}
 export class RateLimiter {
   constructor(state) {
     this.state = state;
@@ -214,26 +167,6 @@ export class RateLimiter {
       input = await request.json();
     } catch (_) {
       return json({ ok: false, error: "invalid rate limit request" }, 400);
-    }
-    if (input && input.type === "nonce") {
-      const nonce = input.nonce;
-      const nowMs = Number(input.nowMs);
-      if (typeof nonce !== "string" || !/^[A-Za-z0-9_-]{22,64}$/.test(nonce)
-          || !Number.isSafeInteger(nowMs) || nowMs < 0) {
-        return json({ ok: false, error: "invalid nonce request" }, 400);
-      }
-      const bucket = Math.floor(nowMs / (NONCE_TTL_SECONDS * 1000));
-      const allowed = await this.state.storage.transaction(async (storage) => {
-        const key = `nonce:${bucket}`;
-        const previous = await storage.get(key);
-        const nonces = Array.isArray(previous) ? previous : [];
-        if (nonces.includes(nonce)) return false;
-        nonces.push(nonce);
-        await storage.put(key, nonces);
-        if (bucket > 1 && typeof storage.delete === "function") await storage.delete(`nonce:${bucket - 2}`);
-        return true;
-      });
-      return json({ ok: true, allowed });
     }
     const limit = Number(input && input.limit);
     const nowMs = Number(input && input.nowMs);
@@ -322,13 +255,6 @@ async function ingest(request, env, context) {
       || !safeEqual(request.headers.get("X-Telemetry-Key") || "", env.INGEST_TOKEN)) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
-  let mode;
-  try {
-    mode = telemetryMode(env);
-  } catch (error) {
-    console.error("telemetry mode is invalid", error);
-    return json({ ok: false, error: "invalid server configuration" }, 500);
-  }
   const nowMs = Date.now();
   let allowed;
   let ipAllowed;
@@ -357,16 +283,6 @@ async function ingest(request, env, context) {
   } catch (error) {
     return json({ ok: false, error: error.message }, 400);
   }
-  let legacyMode;
-  try {
-    legacyMode = legacyAuthMode(env);
-  } catch (error) {
-    console.error("telemetry legacy auth mode is invalid", error);
-    return json({ ok: false, error: "invalid server configuration" }, 500);
-  }
-  if (!item.authVersion && legacyMode === "reject") {
-    return json({ ok: false, error: "legacy telemetry is disabled" }, 403);
-  }
   const now = Math.floor(Date.now() / 1000);
   try {
     allowed = await takeDistributedRateLimit(env, "device", item.deviceId, DEVICE_RATE_LIMIT, nowMs);
@@ -377,119 +293,49 @@ async function ingest(request, env, context) {
   if (!allowed) {
     return json({ ok: false, error: "rate limit exceeded" }, 429);
   }
-  let authenticated;
   try {
-    authenticated = await verifyRequestAuthentication(item, env.INGEST_TOKEN, now);
+    await verifyRequestAuthentication(item, env.INGEST_TOKEN, now);
   } catch (error) {
     return json({ ok: false, error: error.message }, 400);
   }
-  // Replay protection always runs after authentication. Full mode stores the
-  // nonce in D1; presence-only stores a rolling nonce bucket in the Durable
-  // Object so the device snapshot remains the only D1 write.
-  if (authenticated.authenticated) {
-    try {
-      if (mode === "full") {
-        await env.DB.prepare(
-          "INSERT INTO telemetry_nonces (nonce, expires_at) VALUES (?, ?)",
-        ).bind(item.nonce, nonceExpirySeconds(Number(item.eventTime), now)).run();
-      } else if (!(await takeDistributedNonce(env, env.INGEST_TOKEN, item.nonce, nowMs))) {
-        return json({ ok: false, error: "replayed request" }, 409);
-      }
-    } catch (error) {
-      if (mode === "presence_only") {
-        console.error("presence nonce guard unavailable", error);
-        return json({ ok: false, error: "replay guard unavailable" }, 503);
-      }
-      return json({ ok: false, error: "replayed request" }, 409);
-    }
-  }
-  const eventTime = Number(item.eventTime);
-  const upsert = env.DB.prepare(`
+  // Enrollment is intentionally idempotent. Retries and replays execute this
+  // statement but do not modify any D1 row for an existing device or MAC.
+  const insert = env.DB.prepare(`
     INSERT INTO devices (
-      device_id, first_seen, last_seen, last_event, state, phase, current_package,
-      version_code, release_id, endpoint, model, sdk, rom_version, runtime_version, last_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(device_id) DO UPDATE SET
-      last_seen=excluded.last_seen,
-      last_event=excluded.last_event,
-      state=CASE WHEN excluded.state='' THEN devices.state ELSE excluded.state END,
-      phase=CASE WHEN excluded.phase='' THEN devices.phase ELSE excluded.phase END,
-      current_package=CASE WHEN excluded.current_package='' THEN devices.current_package ELSE excluded.current_package END,
-      version_code=CASE WHEN excluded.version_code='' THEN devices.version_code ELSE excluded.version_code END,
-      release_id=CASE WHEN excluded.release_id='' THEN devices.release_id ELSE excluded.release_id END,
-      endpoint=CASE WHEN excluded.endpoint='' THEN devices.endpoint ELSE excluded.endpoint END,
-      model=CASE WHEN excluded.model='' THEN devices.model ELSE excluded.model END,
-      sdk=CASE WHEN excluded.sdk='' THEN devices.sdk ELSE excluded.sdk END,
-      rom_version=CASE WHEN excluded.rom_version='' THEN devices.rom_version ELSE excluded.rom_version END,
-      runtime_version=excluded.runtime_version,
-      last_message=CASE WHEN excluded.last_message='' THEN devices.last_message ELSE excluded.last_message END
-  `).bind(item.deviceId, now, now, item.event, item.state, item.phase, item.packageName,
-    item.versionCode, item.releaseId, item.endpoint, item.model, item.sdk, item.romVersion,
-    item.runtimeVersion, item.message);
-  const statements = [upsert];
-  if (mode === "full") {
-    statements.push(env.DB.prepare(`
-      INSERT INTO events (
-        device_id, received_at, event_time, event, run_id, state, phase, package_name,
-        version_code, release_id, endpoint, message, auth_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(item.deviceId, now, eventTime, item.event, item.runId, item.state, item.phase,
-      item.packageName, item.versionCode, item.releaseId, item.endpoint, item.message,
-      authenticated.authenticated ? AUTH_VERSION : "legacy"));
-  }
-  await env.DB.batch(statements);
-  if (context && mode === "full" && Math.random() < 0.01) {
-    const cutoff = now - EVENT_RETENTION_DAYS * 86400;
-    context.waitUntil(env.DB.prepare("DELETE FROM events WHERE received_at < ?").bind(cutoff).run());
-    if (authenticated.authenticated) {
-      context.waitUntil(env.DB.prepare("DELETE FROM telemetry_nonces WHERE expires_at < ?").bind(now).run());
-    }
-  }
+      device_id, first_seen, release_id, model, sdk, rom_version, runtime_version, mac_address
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT DO NOTHING
+  `).bind(item.deviceId, now, item.releaseId, item.model, item.sdk, item.romVersion,
+    item.runtimeVersion, item.macAddress);
+  await insert.run();
   return json({ ok: true }, 202);
 }
 export async function stats(env) {
   const now = Math.floor(Date.now() / 1000);
-  const onlineAfter = now - ONLINE_WINDOW_SECONDS;
-  // Presence-only reads only the device snapshot. Event history is no longer
-  // queried by the dashboard, so read volume remains bounded by device data.
   const [summary, deviceGroups, recent] = await Promise.all([
-    env.DB.prepare(`
-      SELECT COUNT(*) AS totalDevices,
-        COALESCE(SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END), 0) AS onlineDevices,
-        COALESCE(SUM(CASE WHEN last_seen >= ? AND state='running'
-          AND phase IN ('download-payload','install','uninstall') THEN 1 ELSE 0 END), 0) AS activeInstalls
-      FROM devices
-    `).bind(onlineAfter, onlineAfter).first(),
+    env.DB.prepare("SELECT COUNT(*) AS totalDevices FROM devices").first(),
     env.DB.prepare(`
       SELECT
         COALESCE(NULLIF(TRIM(model), ''), 'Không xác định') AS model,
         COALESCE(NULLIF(TRIM(sdk), ''), 'Không xác định') AS sdk,
-        COUNT(*) AS deviceCount,
-        COALESCE(SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END), 0) AS onlineDevices
+        COUNT(*) AS deviceCount
       FROM devices
       GROUP BY COALESCE(NULLIF(TRIM(model), ''), 'Không xác định'),
         COALESCE(NULLIF(TRIM(sdk), ''), 'Không xác định')
       ORDER BY deviceCount DESC, model ASC, sdk ASC
-    `).bind(onlineAfter).all(),
+    `).all(),
     env.DB.prepare(`
-      SELECT device_id AS deviceId, last_seen AS lastSeen, last_event AS lastEvent, state, phase,
-        current_package AS packageName, release_id AS releaseId, endpoint, model, sdk,
-        rom_version AS romVersion, runtime_version AS runtimeVersion, last_message AS message
-      FROM devices ORDER BY last_seen DESC LIMIT 100
+      SELECT device_id AS deviceId, mac_address AS macAddress, first_seen AS firstSeen,
+        release_id AS releaseId, model, sdk, rom_version AS romVersion,
+        runtime_version AS runtimeVersion
+      FROM devices ORDER BY first_seen DESC LIMIT 100
     `).all(),
   ]);
   return {
     generatedAt: now,
-    onlineWindowSeconds: ONLINE_WINDOW_SECONDS,
     ...summary,
-    downloads24h: 0,
-    installs24h: 0,
-    failures24h: 0,
-    authVersions: [],
     deviceGroups: deviceGroups.results || [],
     recentDevices: recent.results || [],
-    downloads: [],
-    recentFailures: [],
   };
 }
 export async function storageHealth(env) {
@@ -555,15 +401,14 @@ export async function storageHealth(env) {
 
 const DASHBOARD = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>APK Server V2 Telemetry</title><style>
 :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#102027;color:#eef;padding:24px}h1{margin-top:0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.card,section{background:#182b32;border:1px solid #31545e;border-radius:10px;padding:16px}.value{font-size:32px;font-weight:700;color:#80cbc4}section{margin-top:16px;overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;border-bottom:1px solid #31545e;padding:8px;white-space:nowrap}.ok{color:#80cbc4}.bad{color:#ff8a80}button{background:#00695c;color:white;border:1px solid #80cbc4;border-radius:8px;padding:10px 18px}button:focus{background:white;color:black}</style></head><body>
-<h1>APK Server V2 — Telemetry</h1><button id="refresh">Làm mới</button><span id="updated"></span><div class="cards" id="cards"></div>
-<section><h2>Tổng thiết bị theo Model / SDK</h2><table><thead><tr><th>Model</th><th>SDK</th><th>Tổng thiết bị</th><th>Online 10 phút</th></tr></thead><tbody id="device-groups"></tbody></table></section>
-<section><h2>Thiết bị gần đây</h2><table><thead><tr><th>Device ID</th><th>Online</th><th>Trạng thái</th><th>Giai đoạn</th><th>Package</th><th>Model / SDK</th><th>Release</th><th>Thời gian</th></tr></thead><tbody id="devices"></tbody></table></section>
+<h1>APK Server V2 — Thiết bị đã preinstall</h1><button id="refresh">Làm mới</button><span id="updated"></span><div class="cards" id="cards"></div>
+<section><h2>Tổng thiết bị theo Model / SDK</h2><table><thead><tr><th>Model</th><th>SDK</th><th>Tổng thiết bị</th></tr></thead><tbody id="device-groups"></tbody></table></section>
+<section><h2>Thiết bị đã ghi nhận</h2><table><thead><tr><th>Địa chỉ MAC</th><th>Device ID</th><th>Model / SDK</th><th>ROM</th><th>Release</th><th>Ghi nhận lần đầu</th></tr></thead><tbody id="devices"></tbody></table></section>
 <section><h2>R2 storage</h2><div id="storage">Đang kiểm tra…</div></section>
 <script>
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const time=v=>new Date(Number(v)*1000).toLocaleString('vi-VN');
-async function loadDeviceGroups(){const r=await fetch('/api/v2/stats',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json(),groups=Array.isArray(d.deviceGroups)?d.deviceGroups:[];document.querySelector('#device-groups').innerHTML=groups.length?groups.map(x=>'<tr><td>'+esc(x.model)+'</td><td>'+esc(x.sdk)+'</td><td>'+esc(x.deviceCount)+'</td><td>'+esc(x.onlineDevices)+'</td></tr>').join(''):'<tr><td colspan=4>Chưa có dữ liệu thiết bị</td></tr>'}
-async function load(){const [r,sr]=await Promise.all([fetch('/api/v2/stats',{cache:'no-store'}),fetch('/api/v2/storage-health',{cache:'no-store'})]);if(!r.ok||!sr.ok)throw new Error('HTTP '+r.status+'/'+sr.status);const d=await r.json(),s=await sr.json();const cards=[['Tổng thiết bị',d.totalDevices],['Online 10 phút',d.onlineDevices],['Đang cài đặt',d.activeInstalls],['R2 storage',s.ok?'OK':'Lỗi']];document.querySelector('#cards').innerHTML=cards.map(x=>'<div class="card"><div>'+esc(x[0])+'</div><div class="value '+(x[0]==='R2 storage'&&!s.ok?'bad':'')+'">'+esc(x[1])+'</div></div>').join('');document.querySelector('#updated').textContent=' Cập nhật: '+time(d.generatedAt);document.querySelector('#storage').innerHTML='<b class="'+(s.ok?'ok':'bad')+'">'+(s.ok?'Đồng bộ':'Chưa hoàn chỉnh')+'</b> · Release '+esc(s.releaseId||'—')+' · '+esc(s.presentObjects)+'/'+esc(s.declaredObjects)+' object · '+esc(s.declaredBytes)+' byte · kiểm tra '+esc(s.checkedAt)+(s.error?'<br><span class="bad">'+esc(s.error)+'</span>':'')+(s.missingObjects?.length?'<br>Thiếu: '+esc(s.missingObjects.join(', ')):'')+(s.sizeMismatches?.length?'<br>Sai kích thước: '+esc(s.sizeMismatches.join(', ')):'');document.querySelector('#devices').innerHTML=d.recentDevices.map(x=>'<tr><td>'+esc(x.deviceId.slice(0,8))+'…</td><td class="'+(x.lastSeen>=d.generatedAt-d.onlineWindowSeconds?'ok':'')+'">'+(x.lastSeen>=d.generatedAt-d.onlineWindowSeconds?'Có':'Không')+'</td><td>'+esc(x.state)+'</td><td>'+esc(x.phase)+'</td><td>'+esc(x.packageName)+'</td><td>'+esc(x.model)+' / '+esc(x.sdk)+'</td><td>'+esc(x.releaseId)+'</td><td>'+time(x.lastSeen)+'</td></tr>').join('')}
-const refresh=()=>Promise.all([load(),loadDeviceGroups()]).catch(e=>alert(e));document.querySelector('#refresh').onclick=refresh;refresh();setInterval(()=>Promise.all([load(),loadDeviceGroups()]).catch(()=>{}),30000);
+async function load(){const [r,sr]=await Promise.all([fetch('/api/v2/stats',{cache:'no-store'}),fetch('/api/v2/storage-health',{cache:'no-store'})]);if(!r.ok||!sr.ok)throw new Error('HTTP '+r.status+'/'+sr.status);const d=await r.json(),s=await sr.json(),groups=Array.isArray(d.deviceGroups)?d.deviceGroups:[];document.querySelector('#device-groups').innerHTML=groups.length?groups.map(x=>'<tr><td>'+esc(x.model)+'</td><td>'+esc(x.sdk)+'</td><td>'+esc(x.deviceCount)+'</td></tr>').join(''):'<tr><td colspan=3>Chưa có dữ liệu thiết bị</td></tr>';const cards=[['Thiết bị đã preinstall',d.totalDevices],['R2 storage',s.ok?'OK':'Lỗi']];document.querySelector('#cards').innerHTML=cards.map(x=>'<div class="card"><div>'+esc(x[0])+'</div><div class="value '+(x[0]==='R2 storage'&&!s.ok?'bad':'')+'">'+esc(x[1])+'</div></div>').join('');document.querySelector('#updated').textContent=' Cập nhật: '+time(d.generatedAt);document.querySelector('#storage').innerHTML='<b class="'+(s.ok?'ok':'bad')+'">'+(s.ok?'Đồng bộ':'Chưa hoàn chỉnh')+'</b> · Release '+esc(s.releaseId||'—')+' · '+esc(s.presentObjects)+'/'+esc(s.declaredObjects)+' object · '+esc(s.declaredBytes)+' byte · kiểm tra '+esc(s.checkedAt)+(s.error?'<br><span class="bad">'+esc(s.error)+'</span>':'')+(s.missingObjects?.length?'<br>Thiếu: '+esc(s.missingObjects.join(', ')):'')+(s.sizeMismatches?.length?'<br>Sai kích thước: '+esc(s.sizeMismatches.join(', ')):'');document.querySelector('#devices').innerHTML=d.recentDevices.map(x=>'<tr><td>'+esc(x.macAddress||'Không có')+'</td><td>'+esc(x.deviceId)+'</td><td>'+esc(x.model||'Không xác định')+' / '+esc(x.sdk||'Không xác định')+'</td><td>'+esc(x.romVersion||'—')+'</td><td>'+esc(x.releaseId||'—')+'</td><td>'+time(x.firstSeen)+'</td></tr>').join('')}
+const refresh=()=>load().catch(e=>alert(e));document.querySelector('#refresh').onclick=refresh;refresh();setInterval(()=>load().catch(()=>{}),30000);
 </script></body></html>`;
 
 async function handle(request, env, context) {
@@ -591,14 +436,5 @@ export default {
       console.error("telemetry request failed", error);
       return json({ ok: false, error: "internal error" }, 500);
     });
-  },
-  async scheduled(_event, env) {
-    if (telemetryMode(env) !== "full") return;
-    const cutoff = Math.floor(Date.now() / 1000) - EVENT_RETENTION_DAYS * 86400;
-    const now = Math.floor(Date.now() / 1000);
-    await Promise.all([
-      env.DB.prepare("DELETE FROM events WHERE received_at < ?").bind(cutoff).run(),
-      env.DB.prepare("DELETE FROM telemetry_nonces WHERE expires_at < ?").bind(now).run(),
-    ]);
   },
 };

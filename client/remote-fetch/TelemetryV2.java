@@ -19,17 +19,9 @@ public final class TelemetryV2 {
     private static final int CONNECT_TIMEOUT_MS = 8_000;
     private static final int READ_TIMEOUT_MS = 8_000;
     private static final int MAX_RESPONSE_BYTES = 4_096;
-    private static final String RUNTIME_VERSION = "2.3-telemetry2";
+    private static final String RUNTIME_VERSION = "2.5-enrollment";
     private static final String AUTH_VERSION = "2";
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final String[] EVENTS = {
-        "heartbeat", "run_started", "manifest_loaded", "manifest_failed",
-        "download_started", "download_completed", "download_failed",
-        "install_started", "install_completed", "install_failed",
-        "uninstall_started", "uninstall_completed", "uninstall_failed",
-        "run_completed", "run_failed"
-    };
-
     private TelemetryV2() { }
 
     public static void main(String[] args) {
@@ -42,54 +34,24 @@ public final class TelemetryV2 {
     }
 
     private static void run(String[] args) throws Exception {
-        if (args.length > 0 && "--presence".equals(args[0])) {
-            runPresence(args);
-            return;
-        }
-        if (args.length != 15 || !"--post".equals(args[0])) {
-            throw new IllegalArgumentException("usage: TelemetryV2 --post DEVICE_ID EVENT EVENT_TIME RUN_ID STATE PHASE PACKAGE VERSION RELEASE ENDPOINT MESSAGE MODEL SDK ROM");
+        if (args.length != 8 || !"--enroll".equals(args[0])) {
+            throw new IllegalArgumentException("usage: TelemetryV2 --enroll DEVICE_ID MAC EVENT_TIME RELEASE MODEL SDK ROM");
         }
         String deviceId = validateDeviceId(args[1]);
-        String event = validate(args[2], "event", 32, false);
-        if (!isAllowedEvent(event)) throw new SecurityException("invalid event");
+        String macAddress = validate(args[2], "macAddress", 17, true).toLowerCase();
+        if (macAddress.length() > 0 && !macAddress.matches("[0-9a-f]{2}(:[0-9a-f]{2}){5}")) {
+            throw new SecurityException("invalid macAddress");
+        }
         String eventTime = validateDigits(args[3], "eventTime", 13, false);
-        String runId = validate(args[4], "runId", 64, true);
-        String state = validate(args[5], "state", 24, true);
-        String phase = validate(args[6], "phase", 32, true);
-        String packageName = validate(args[7], "packageName", 160, true);
-        String versionCode = validateDigits(args[8], "versionCode", 20, true);
-        String releaseId = validate(args[9], "releaseId", 96, true);
-        String selectedEndpoint = validate(args[10], "endpoint", 160, true);
-        String message = validate(args[11], "message", 240, true);
-        String model = validate(args[12], "model", 96, true);
-        String sdk = validateDigits(args[13], "sdk", 3, true);
-        String romVersion = validate(args[14], "romVersion", 128, true);
+        String releaseId = validate(args[4], "releaseId", 96, true);
+        String model = validate(args[5], "model", 96, true);
+        String sdk = validateDigits(args[6], "sdk", 3, true);
+        String romVersion = validate(args[7], "romVersion", 128, true);
         String token = readToken();
-        postEvent(deviceId, event, eventTime, runId, state, phase, packageName, versionCode,
-                releaseId, selectedEndpoint, message, model, sdk, romVersion, RUNTIME_VERSION, token);
-        System.out.println("TelemetryV2: accepted event=" + event);
-    }
-
-    private static void runPresence(String[] args) throws Exception {
-        if (args.length != 13) {
-            throw new IllegalArgumentException("usage: TelemetryV2 --presence DEVICE_ID EVENT_TIME STATE PHASE PACKAGE VERSION RELEASE ENDPOINT MESSAGE MODEL SDK ROM");
-        }
-        String deviceId = validateDeviceId(args[1]);
-        String eventTime = validateDigits(args[2], "eventTime", 13, false);
-        String state = validate(args[3], "state", 24, true);
-        String phase = validate(args[4], "phase", 32, true);
-        String packageName = validate(args[5], "packageName", 160, true);
-        String versionCode = validateDigits(args[6], "versionCode", 20, true);
-        String releaseId = validate(args[7], "releaseId", 96, true);
-        String selectedEndpoint = validate(args[8], "endpoint", 160, true);
-        String message = validate(args[9], "message", 240, true);
-        String model = validate(args[10], "model", 96, true);
-        String sdk = validateDigits(args[11], "sdk", 3, true);
-        String romVersion = validate(args[12], "romVersion", 128, true);
-        String token = readToken();
-        postEvent(deviceId, "heartbeat", eventTime, "", state, phase, packageName, versionCode,
-                releaseId, selectedEndpoint, message, model, sdk, romVersion, "2.4-presence", token);
-        System.out.println("TelemetryV2: accepted presence heartbeat");
+        postEnrollment(deviceId, macAddress, "preinstall_registered", eventTime, "", "installed",
+                "preinstall", "", "", releaseId, "", "Initial preinstall completed", model, sdk,
+                romVersion, RUNTIME_VERSION, token);
+        System.out.println("TelemetryV2: accepted initial preinstall registration");
     }
 
     private static String validateDeviceId(String value) {
@@ -100,17 +62,20 @@ public final class TelemetryV2 {
         return deviceId;
     }
 
-    private static void postEvent(String deviceId, String event, String eventTime, String runId,
+    private static void postEnrollment(String deviceId, String macAddress,
+            String event, String eventTime, String runId,
             String state, String phase, String packageName, String versionCode, String releaseId,
             String selectedEndpoint, String message, String model, String sdk, String romVersion,
             String runtimeVersion, String token) throws Exception {
         String nonce = newNonce();
-        String canonical = canonicalEvent(deviceId, event, eventTime, runId, state, phase, packageName,
+        String canonical = canonicalEvent(deviceId, macAddress, event, eventTime,
+                runId, state, phase, packageName,
                 versionCode, releaseId, selectedEndpoint, message, model, sdk, romVersion, runtimeVersion, nonce);
         String signature = sign(canonical, token);
         String json = "{" +
-                pair("schemaVersion", "1") + "," +
+                pair("schemaVersion", "2") + "," +
                 pair("deviceId", deviceId) + "," +
+                pair("macAddress", macAddress) + "," +
                 pair("event", event) + "," +
                 pair("eventTime", eventTime) + "," +
                 pair("runId", runId) + "," +
@@ -130,11 +95,6 @@ public final class TelemetryV2 {
                 pair("signature", signature) + "}";
         post(json.getBytes(StandardCharsets.UTF_8), token);
     }
-    private static boolean isAllowedEvent(String event) {
-        for (String allowed : EVENTS) if (allowed.equals(event)) return true;
-        return false;
-    }
-
     private static String validate(String value, String name, int max, boolean emptyAllowed) {
         if (value == null || value.length() > max || (!emptyAllowed && value.length() == 0)) {
             throw new SecurityException("invalid " + name);
@@ -168,10 +128,12 @@ public final class TelemetryV2 {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private static String canonicalEvent(String deviceId, String event, String eventTime, String runId,
+    private static String canonicalEvent(String deviceId, String macAddress,
+            String event, String eventTime, String runId,
             String state, String phase, String packageName, String versionCode, String releaseId,
             String selectedEndpoint, String message, String model, String sdk, String romVersion, String runtimeVersion, String nonce) {
-        return "apk-server-v2-telemetry\n" + AUTH_VERSION + "\n" + deviceId.toLowerCase() + "\n" + event + "\n"
+        return "apk-server-v2-telemetry\n" + AUTH_VERSION + "\n" + deviceId.toLowerCase() + "\n"
+                + macAddress + "\n" + event + "\n"
                 + eventTime + "\n" + runId + "\n" + state + "\n" + phase + "\n" + packageName + "\n"
                 + versionCode + "\n" + releaseId + "\n" + selectedEndpoint + "\n" + message + "\n"
                 + model + "\n" + sdk + "\n" + romVersion + "\n" + runtimeVersion + "\n" + nonce;
