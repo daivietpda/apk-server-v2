@@ -34,7 +34,7 @@ TelemetryV2 --enroll DEVICE_ID MAC EVENT_TIME RELEASE MODEL SDK ROM
 
 6. Khi marker tồn tại, listener không tạo hoặc gửi thêm telemetry. Không có timer heartbeat.
 
-Device ID mới được tạo ổn định từ MAC theo mẫu `00000000-0000-4000-8000-xxxxxxxxxxxx`. Listener ưu tiên MAC trong `dumpsys wifi`, sau đó `wlan0`, `eth0` và MAC đã cache. Nếu không đọc được MAC hợp lệ, listener dùng UUID lưu cục bộ; UUID cũ được giữ nguyên để backfill MAC vào đúng dòng D1.
+Device ID mới được tạo ổn định từ MAC theo mẫu `00000000-0000-4000-8000-xxxxxxxxxxxx`. Listener ưu tiên MAC trong `dumpsys wifi`, sau đó `wlan0`, `eth0` và MAC đã cache. UUID ngẫu nhiên cũ được giữ nguyên để backfill MAC vào đúng dòng D1; nếu ID cũ được sinh từ một MAC khác/placeholder, listener tạo ID mới từ MAC hiện tại để tránh đụng thiết bị khác.
 
 ## 3. Luồng trên Worker và D1
 
