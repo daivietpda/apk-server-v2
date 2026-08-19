@@ -3,27 +3,31 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import worker, {
-  canonicalEvent, legacyAuthMode, nonceExpirySeconds, RateLimiter, readBodyLimited, safeEqual, stats, takeDistributedNonce, telemetryMode,
+  canonicalEvent, RateLimiter, readBodyLimited, safeEqual, stats,
   takeDistributedRateLimit, validatePayload,
 } from "../src/worker.js";
 
 const valid = {
-  schemaVersion: "1",
-  deviceId: "123e4567-e89b-12d3-a456-426614174000",
-  event: "install_completed",
+  schemaVersion: "2",
+  deviceId: "00000000-0000-4000-8000-aabbccddeeff",
+  macAddress: "aa:bb:cc:dd:ee:ff",
+  event: "preinstall_registered",
   eventTime: "1785420000",
   runId: "20260730-120000-123",
-  state: "running",
-  phase: "install",
-  packageName: "com.example.tv",
-  versionCode: "42",
+  state: "installed",
+  phase: "preinstall",
+  packageName: "",
+  versionCode: "",
   releaseId: "v3-test",
   endpoint: "https://apk.daivietpda.com/",
-  message: "Installed",
+  message: "Initial preinstall completed",
   model: "TV Box",
   sdk: "29",
   romVersion: "build-1",
-  runtimeVersion: "2.2-telemetry1",
+  runtimeVersion: "2.5-enrollment",
+  authVersion: "2",
+  nonce: "nonce_for_validation_12345",
+  signature: "A".repeat(43),
 };
 
 const ingestToken = "x".repeat(32);
@@ -32,13 +36,30 @@ function signedPayload(overrides = {}) {
   const payload = {
     ...valid,
     eventTime: String(Math.floor(Date.now() / 1000)),
-    runtimeVersion: "2.3-telemetry2",
+    runtimeVersion: "2.5-enrollment",
     authVersion: "2",
     nonce: "nonce_for_test_request_123",
     ...overrides,
   };
   payload.signature = createHmac("sha256", ingestToken).update(canonicalEvent(payload)).digest("base64url");
   return payload;
+}
+
+function enrollmentPayload(overrides = {}) {
+  return signedPayload({
+    schemaVersion: "2",
+    deviceId: "00000000-0000-4000-8000-aabbccddeeff",
+    macAddress: "aa:bb:cc:dd:ee:ff",
+    event: "preinstall_registered",
+    state: "installed",
+    phase: "preinstall",
+    packageName: "",
+    versionCode: "",
+    message: "Initial preinstall completed",
+    runtimeVersion: "2.5-enrollment",
+    nonce: "nonce_for_enrollment_12345",
+    ...overrides,
+  });
 }
 
 function ingestDatabase() {
@@ -134,13 +155,13 @@ test("constant-time comparison returns expected result", () => {
 test("valid telemetry payload is normalized", () => {
   const item = validatePayload(valid);
   assert.equal(item.deviceId, valid.deviceId);
-  assert.equal(item.packageName, "com.example.tv");
+  assert.equal(item.macAddress, "aa:bb:cc:dd:ee:ff");
 });
 
 test("stats groups total devices by normalized model and SDK", async () => {
   const groupRows = [
-    { model: 'Leap-S1', sdk: '29', deviceCount: 4, onlineDevices: 2 },
-    { model: 'Không xác định', sdk: '34', deviceCount: 1, onlineDevices: 0 },
+    { model: 'Leap-S1', sdk: '29', deviceCount: 4 },
+    { model: 'Không xác định', sdk: '34', deviceCount: 1 },
   ];
   const env = {
     DB: {
@@ -149,7 +170,7 @@ test("stats groups total devices by normalized model and SDK", async () => {
           bind() { return statement; },
           async first() {
             if (sql.includes('COUNT(*) AS totalDevices')) {
-              return { totalDevices: 5, onlineDevices: 2, activeInstalls: 0 };
+              return { totalDevices: 5 };
             }
             return { downloads24h: 0, installs24h: 0, failures24h: 0 };
           },
@@ -167,13 +188,15 @@ test("stats groups total devices by normalized model and SDK", async () => {
   assert.equal(result.totalDevices, 5);
   assert.deepEqual(result.deviceGroups, groupRows);
   assert.equal(result.deviceGroups.reduce((sum, item) => sum + item.deviceCount, 0), result.totalDevices);
-  assert.deepEqual(result.authVersions, []);
+  assert.equal("onlineDevices" in result, false);
 });
 
 test("hardware-style and unexpected fields cannot bypass validation", () => {
   assert.throws(() => validatePayload({ ...valid, event: "device_serial" }), /invalid event/);
   assert.throws(() => validatePayload({ ...valid, endpoint: "https://evil.example/" }), /invalid endpoint/);
   assert.throws(() => validatePayload({ ...valid, message: "bad\nline" }), /invalid message/);
+  assert.throws(() => validatePayload({ ...valid, event: "heartbeat" }), /invalid event/);
+  assert.throws(() => validatePayload({ ...enrollmentPayload(), macAddress: "not-a-mac" }), /invalid macAddress/);
 });
 
 test("health endpoint does not require database or credentials", async () => {
@@ -231,65 +254,40 @@ test("ingest rejects missing secret before touching D1", async () => {
   assert.equal(response.status, 401);
 });
 
-test("signed telemetry is accepted and a replayed nonce is rejected", async () => {
+test("signed telemetry replays are harmless and only backfill a missing MAC", async () => {
   const env = { INGEST_TOKEN: ingestToken, ...ingestDatabase() };
   const payload = signedPayload();
   const first = await worker.fetch(signedRequest(payload), env);
   assert.equal(first.status, 202);
   const replay = await worker.fetch(signedRequest(payload), env);
-  assert.equal(replay.status, 409);
-  assert.deepEqual(await replay.json(), { ok: false, error: "replayed request" });
+  assert.equal(replay.status, 202);
+  assert.equal(env.writes.some((sql) => /INSERT INTO events|telemetry_nonces/.test(sql)), false);
+  assert.ok(env.writes.every((sql) => sql.includes("ON CONFLICT(device_id) DO UPDATE")));
+  assert.ok(env.writes.every((sql) => sql.includes("WHERE devices.mac_address = ''")));
 });
 
 
-test("presence-only accepts signed telemetry without event or nonce D1 writes", async () => {
+test("initial preinstall enrollment stores MAC with no event or nonce D1 writes", async () => {
   const database = ingestDatabase();
-  const env = { INGEST_TOKEN: ingestToken, TELEMETRY_MODE: "presence_only", ...database };
-  const payload = signedPayload({
-    event: "heartbeat",
-    state: "online",
-    phase: "presence",
-    packageName: "",
-    versionCode: "",
-    releaseId: "",
-    message: "Heartbeat",
-    nonce: "nonce_for_presence_only_123",
-  });
+  const env = { INGEST_TOKEN: ingestToken, ...database };
+  const payload = enrollmentPayload();
   const response = await worker.fetch(signedRequest(payload), env);
   assert.equal(response.status, 202);
   assert.equal(database.writes.some((sql) => sql.includes("telemetry_nonces")), false);
-  assert.deepEqual(database.batches[0], [database.batches[0][0]]);
+  assert.equal(database.writes.some((sql) => sql.includes("INSERT INTO events")), false);
+  assert.match(database.writes[0], /mac_address/);
+  assert.match(database.writes[0], /ON CONFLICT\(device_id\) DO UPDATE/);
+  assert.match(database.writes[0], /WHERE devices\.mac_address = '' AND excluded\.mac_address <> ''/);
   const replay = await worker.fetch(signedRequest(payload), env);
-  assert.equal(replay.status, 409);
-  assert.deepEqual(await replay.json(), { ok: false, error: "replayed request" });
-  assert.match(database.batches[0][0], /INSERT INTO devices/);
+  assert.equal(replay.status, 202);
 });
 
-test("telemetry mode defaults to full for an omitted deployment variable", () => {
-  assert.equal(telemetryMode({}), "full");
-  assert.equal(telemetryMode({ TELEMETRY_MODE: "presence_only" }), "presence_only");
-  assert.throws(() => telemetryMode({ TELEMETRY_MODE: "invalid" }), /invalid TELEMETRY_MODE/);
-});
-test("future-dated signed nonce survives cleanup until its timestamp window closes", async () => {
-  const originalDateNow = Date.now;
-  const startedAt = 1_790_000_000;
-  const futureEventTime = startedAt + 600;
-  const env = { INGEST_TOKEN: ingestToken, ...ingestDatabase() };
-  try {
-    Date.now = () => startedAt * 1000;
-    const payload = signedPayload({
-      eventTime: String(futureEventTime),
-      nonce: "nonce_for_future_timestamp_123",
-    });
-    assert.equal(nonceExpirySeconds(futureEventTime, startedAt), startedAt + 1260);
-    assert.equal((await worker.fetch(signedRequest(payload), env)).status, 202);
-
-    Date.now = () => (startedAt + 901) * 1000;
-    await worker.scheduled({}, env);
-    assert.equal((await worker.fetch(signedRequest(payload), env)).status, 409);
-  } finally {
-    Date.now = originalDateNow;
-  }
+test("legacy heartbeat is rejected before D1", async () => {
+  const database = ingestDatabase();
+  const payload = { ...enrollmentPayload(), schemaVersion: "1", event: "heartbeat" };
+  const response = await worker.fetch(signedRequest(payload), { INGEST_TOKEN: ingestToken, ...database });
+  assert.equal(response.status, 400);
+  assert.deepEqual(database.writes, []);
 });
 
 test("forged signature and stale timestamp are rejected before D1 writes", async () => {
@@ -302,36 +300,6 @@ test("forged signature and stale timestamp are rejected before D1 writes", async
   assert.equal(staleResponse.status, 400);
 });
 
-test("legacy payload remains accepted by validation during migration", () => {
-  const legacy = { ...valid };
-  const item = validatePayload(legacy);
-  assert.equal(item.authVersion, "");
-  assert.equal(item.nonce, "");
-});
-
-test("legacy migration supports allow, observe, and explicit reject without blocking v2", async () => {
-  assert.equal(legacyAuthMode({}), "allow");
-  assert.equal(legacyAuthMode({ LEGACY_AUTH_MODE: "observe" }), "observe");
-  assert.throws(() => legacyAuthMode({ LEGACY_AUTH_MODE: "invalid" }), /invalid LEGACY_AUTH_MODE/);
-
-  const legacyAllow = await worker.fetch(signedRequest({ ...valid }), {
-    INGEST_TOKEN: ingestToken, LEGACY_AUTH_MODE: "allow", ...ingestDatabase(),
-  });
-  assert.equal(legacyAllow.status, 202);
-  const legacyObserve = await worker.fetch(signedRequest({ ...valid }), {
-    INGEST_TOKEN: ingestToken, LEGACY_AUTH_MODE: "observe", ...ingestDatabase(),
-  });
-  assert.equal(legacyObserve.status, 202);
-  const legacyReject = await worker.fetch(signedRequest({ ...valid }), {
-    INGEST_TOKEN: ingestToken, LEGACY_AUTH_MODE: "reject", ...ingestDatabase(),
-  });
-  assert.equal(legacyReject.status, 403);
-  const v2Reject = await worker.fetch(signedRequest(signedPayload({ nonce: "nonce_for_reject_mode_123" })), {
-    INGEST_TOKEN: ingestToken, LEGACY_AUTH_MODE: "reject", ...ingestDatabase(),
-  });
-  assert.equal(v2Reject.status, 202);
-});
-
 test("Durable Object rate limit is atomic and resets only after its window", async () => {
   const limiter = new RateLimiter(durableObjectState());
   const request = (nowMs) => new Request("https://rate-limit/check", {
@@ -341,16 +309,6 @@ test("Durable Object rate limit is atomic and resets only after its window", asy
   assert.deepEqual(await (await limiter.fetch(request(1_000))).json(), { ok: true, allowed: true });
   assert.deepEqual(await (await limiter.fetch(request(1_001))).json(), { ok: true, allowed: false });
   assert.deepEqual(await (await limiter.fetch(request(61_000))).json(), { ok: true, allowed: true });
-});
-
-test("Durable Object nonce guard rejects a replay in the same bucket", async () => {
-  const limiter = new RateLimiter(durableObjectState());
-  const request = (nonce) => new Request("https://rate-limit/nonce", {
-    method: "POST",
-    body: JSON.stringify({ type: "nonce", nonce, nowMs: 1_000 }),
-  });
-  assert.deepEqual(await (await limiter.fetch(request("nonce_for_do_test_12345"))).json(), { ok: true, allowed: true });
-  assert.deepEqual(await (await limiter.fetch(request("nonce_for_do_test_12345"))).json(), { ok: true, allowed: false });
 });
 
 test("distributed rate limit spans simulated Worker isolates without exposing raw identity", async () => {
@@ -366,16 +324,18 @@ test("denied IP limit rejects telemetry even when the shared credential remains 
   const env = { INGEST_TOKEN: ingestToken, ...ingestDatabase() };
   for (let index = 0; index < 60; index += 1) {
     const deviceSuffix = index.toString(16).padStart(12, "0");
-    const response = await worker.fetch(signedRequest({
-      ...valid,
+    const response = await worker.fetch(signedRequest(signedPayload({
       deviceId: "123e4567-e89b-12d3-a456-" + deviceSuffix,
-    }), env);
+      macAddress: "",
+      nonce: "nonce_for_rate_limit_" + index.toString().padStart(3, "0"),
+    })), env);
     assert.equal(response.status, 202);
   }
-  const blocked = await worker.fetch(signedRequest({
-    ...valid,
+  const blocked = await worker.fetch(signedRequest(signedPayload({
     deviceId: "123e4567-e89b-12d3-a456-ffffffffffff",
-  }), env);
+    macAddress: "",
+    nonce: "nonce_for_rate_limit_blocked",
+  })), env);
   assert.equal(blocked.status, 429);
 });
 
