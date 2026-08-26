@@ -12,6 +12,11 @@
       "forceInstall": false
     },
     {
+      "file": "DLStore16.0.5.apk",
+      "packageName": "",
+      "forceInstall": false
+    },
+    {
       "file": "downloader.zip",
       "packageName": "com.esaba.downloader",
       "forceInstall": true

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 7,
+  "releaseSequence": 8,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -24,6 +24,18 @@
         "path": "payload/com.google.android.youtube.tv-104-78d77853cf78.apk",
         "sha256": "78d77853cf7801636f94e9545af9efe422b01fea6727fc40cbb952af78f1fbd7",
         "size": 15337998
+      }
+    },
+    {
+      "name": "DLStore16.0.5",
+      "packageName": "com.dinhlap.dlstore",
+      "versionCode": 42,
+      "format": "apk",
+      "forceInstall": false,
+      "payload": {
+        "path": "payload/com.dinhlap.dlstore-42-dba7c71c1ff6.apk",
+        "sha256": "dba7c71c1ff6b44d4c98c0f31854f21d01f32406ffb148976dee9b38789a39fd",
+        "size": 4640463
       }
     },
     {
@@ -120,5 +132,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-93c1b4c51de30b89fca7"
+  "releaseId": "v3-65b36121a441d7da70dd"
 }
