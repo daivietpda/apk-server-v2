@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 6,
+  "releaseSequence": 7,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -39,15 +39,15 @@
       }
     },
     {
-      "name": "FPTPlay[7.32.11]",
+      "name": "FPT Play[7.33.10]",
       "packageName": "net.fptplay.ottbox",
-      "versionCode": 4361,
+      "versionCode": 4371,
       "format": "splitZip",
       "forceInstall": false,
       "payload": {
-        "path": "payload/net.fptplay.ottbox-4361-778cd2309b85.zip",
-        "sha256": "778cd2309b859845cd8189bac257be792f4bf97d9134b0d05759c079b2f27aee",
-        "size": 87111644
+        "path": "payload/net.fptplay.ottbox-4371-8f13227ff645.zip",
+        "sha256": "8f13227ff645681129f2ed56898e4d09ce0b36390a2f6af9ac33341852a732f5",
+        "size": 87368229
       }
     },
     {
@@ -120,5 +120,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-24969cdc203ac7b8592e"
+  "releaseId": "v3-93c1b4c51de30b89fca7"
 }
