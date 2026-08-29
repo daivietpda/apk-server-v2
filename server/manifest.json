@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 8,
+  "releaseSequence": 9,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -87,6 +87,18 @@
       }
     },
     {
+      "name": "LeanKeyKeyboardPro_v6.1.15_playstore_r",
+      "packageName": "org.liskovsoft.androidtv.rukeyboard",
+      "versionCode": 185,
+      "format": "apk",
+      "forceInstall": false,
+      "payload": {
+        "path": "payload/org.liskovsoft.androidtv.rukeyboard-185-35f435becb7d.apk",
+        "sha256": "35f435becb7d3a5f9f96a837009627506f9f96045ff46cf3bbb421bff5a7c6c4",
+        "size": 2393418
+      }
+    },
+    {
       "name": "smarttube_stable",
       "packageName": "org.smarttube.stable",
       "versionCode": 2384,
@@ -132,5 +144,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-65b36121a441d7da70dd"
+  "releaseId": "v3-790013bb13d49f7ba638"
 }
