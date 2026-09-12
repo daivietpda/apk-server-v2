@@ -2,6 +2,12 @@
   "version": 1,
   "uninstallPackages": [
     {
+      "packageName": "com.kt.apps.media.xemtv.beta",
+      "enforce": true,
+      "keepData": false,
+      "userId": 0
+    },
+    {
       "packageName": "com.maxrave.simpmusic",
       "enforce": true,
       "keepData": false,

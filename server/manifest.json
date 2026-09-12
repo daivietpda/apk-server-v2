@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 11,
+  "releaseSequence": 12,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -126,11 +126,18 @@
   "uninstallPackages": [
     {
       "action": "uninstall",
+      "packageName": "com.kt.apps.media.xemtv.beta",
+      "enforce": true,
+      "keepData": false,
+      "userId": 0
+    },
+    {
+      "action": "uninstall",
       "packageName": "com.maxrave.simpmusic",
       "enforce": true,
       "keepData": false,
       "userId": 0
     }
   ],
-  "releaseId": "v3-b110789dd90f8f458eb3"
+  "releaseId": "v3-9d833ba49e28291865a3"
 }
