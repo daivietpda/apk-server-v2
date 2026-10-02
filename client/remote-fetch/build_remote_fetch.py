@@ -13,9 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SOURCES = [ROOT / "RemoteFetchV2.java", ROOT / "TelemetryV2.java", ROOT / "ManifestVerifyV2.java"]
 BCPROV_VERSION = "1.78.1"
-BCPROV_NAME = f"bcprov-jdk15to18-{BCPROV_VERSION}.jar"
-BCPROV_URL = f"https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk15to18/{BCPROV_VERSION}/{BCPROV_NAME}"
-BCPROV_SHA256 = "b6758a0a72ed44dfdb316e50a67919cc4640e160a26b8a7e9d989cdcb3fc8a7f"
+BCPROV_NAME = f"bcprov-jdk18on-{BCPROV_VERSION}.jar"
+BCPROV_URL = f"https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/{BCPROV_VERSION}/{BCPROV_NAME}"
+BCPROV_SHA256 = "add5915e6acfc6ab5836e1fd8a5e21c6488536a8c1f21f386eeb3bf280b702d7"
 
 
 def sha256(path):
