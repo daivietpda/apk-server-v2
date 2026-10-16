@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 15,
+  "releaseSequence": 16,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -36,18 +36,6 @@
         "path": "payload/com.dinhlap.dlstore-42-dba7c71c1ff6.apk",
         "sha256": "dba7c71c1ff6b44d4c98c0f31854f21d01f32406ffb148976dee9b38789a39fd",
         "size": 4640463
-      }
-    },
-    {
-      "name": "downloader",
-      "packageName": "com.esaba.downloader",
-      "versionCode": 74,
-      "format": "splitZip",
-      "forceInstall": true,
-      "payload": {
-        "path": "payload/com.esaba.downloader-74-e6444201987b.zip",
-        "sha256": "e6444201987b21fbcec40854bf593d769c06109771632403581b6b85ecfc8d7b",
-        "size": 12253738
       }
     },
     {
@@ -139,5 +127,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-6d7795b748f8907e01e8"
+  "releaseId": "v3-085acfacf5a57eb80cc9"
 }
