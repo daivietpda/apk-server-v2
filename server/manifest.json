@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 16,
+  "releaseSequence": 17,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -87,15 +87,15 @@
       }
     },
     {
-      "name": "VTVgoTV12.10.3",
+      "name": "VTVgoTV12.10.28",
       "packageName": "vn.vtv.vtvgotv",
-      "versionCode": 260925,
+      "versionCode": 260931,
       "format": "splitZip",
       "forceInstall": false,
       "payload": {
-        "path": "payload/vn.vtv.vtvgotv-260925-ffa4caa5e938.zip",
-        "sha256": "ffa4caa5e938eb3e2f2ac4049c8dc1852159ffbef6f499c3a2d0eecb2ac7c597",
-        "size": 13830345
+        "path": "payload/vn.vtv.vtvgotv-260931-337fd482f2b2.zip",
+        "sha256": "337fd482f2b2070302ed01bffa7549923756de26e97b032eb85f1c2c15b1ba73",
+        "size": 14147280
       }
     },
     {
@@ -127,5 +127,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-085acfacf5a57eb80cc9"
+  "releaseId": "v3-ed2a359fab34eb9defb3"
 }
