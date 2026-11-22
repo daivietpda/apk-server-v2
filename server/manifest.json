@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "releaseSequence": 19,
+  "releaseSequence": 20,
   "packages": [
     {
       "name": "AptoideTV-5.0.2",
@@ -87,18 +87,6 @@
       }
     },
     {
-      "name": "VTVgoTV12.11.19",
-      "packageName": "vn.vtv.vtvgotv",
-      "versionCode": 260937,
-      "format": "splitZip",
-      "forceInstall": false,
-      "payload": {
-        "path": "payload/vn.vtv.vtvgotv-260937-04759e8cad74.zip",
-        "sha256": "04759e8cad74ba151171e64b6b780d7447aacb1252d0065a24bd5583b71145fa",
-        "size": 14021027
-      }
-    },
-    {
       "name": "Xplore",
       "packageName": "com.lonelycatgames.Xplore",
       "versionCode": 42004,
@@ -127,5 +115,5 @@
       "userId": 0
     }
   ],
-  "releaseId": "v3-47504fc6a4b2ba8073b6"
+  "releaseId": "v3-3eb81988b35849c6e93c"
 }
